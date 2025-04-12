@@ -1,0 +1,27 @@
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: #0e0e0e;
+  color: #fff;
+  text-align: center;
+  margin: 0;
+  padding: 2rem;
+}
+
+.button {
+  display: inline-block;
+  margin: 1rem;
+  padding: 1rem 2rem;
+  background: #ff00cc;
+  color: white;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: bold;
+}
+
+iframe {
+  margin-top: 2rem;
+  width: 90%;
+  max-width: 720px;
+  height: 405px;
+  border: none;
+}
