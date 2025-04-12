@@ -1,13 +1,12 @@
 import streamlit as st
-import os
 import openai
+import os
+
 from narrate import narrate_story
 from cover import generate_cover_image
 
-# Load environment variables
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Streamlit UI
 st.set_page_config(page_title="NarrativaX AI Story Generator")
 st.title("NarrativaX AI Story Generator")
 
@@ -18,20 +17,21 @@ story_text = ""
 if st.button("Generate Story"):
     with st.spinner("Summoning GPT..."):
         try:
-            response = openai.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are a creative story writer."},
-                    {"role": "user", "content": story_prompt}
-                ]
+                    {"role": "system", "content": "You're a story-writing assistant."},
+                    {"role": "user", "content": story_prompt},
+                ],
+                temperature=0.9,
+                max_tokens=800,
             )
-            story_text = response.choices[0].message.content
-            st.success("Here's your story:")
+            story_text = response['choices'][0]['message']['content']
+            st.subheader("Here's your story:")
             st.write(story_text)
         except Exception as e:
             st.error(f"Story generation failed: {e}")
 
-# Add-ons (only visible after story is generated)
 if story_text:
     if st.button("Generate Cover Image"):
         with st.spinner("Creating cover with DALL·E..."):
