@@ -1,13 +1,9 @@
 import os
-import openai
+from elevenlabs import generate, save, set_api_key
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+set_api_key(os.getenv("ELEVENLABS_API_KEY"))
 
-def generate_cover_image(prompt, size="1024x1024"):
-    response = openai.images.generate(
-        model="dall-e-3",
-        prompt=prompt,
-        size=size,
-        n=1
-    )
-    return response.data[0].url
+def narrate_story(text, voice="Rachel", output_path="story.mp3"):
+    audio = generate(text=text, voice=voice)
+    save(audio, output_path)
+    return output_path
