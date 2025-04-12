@@ -1,16 +1,3 @@
-from elevenlabs import generate, play, save, set_api_key
-import streamlit as st
-
-set_api_key(os.getenv("ELEVENLABS_API_KEY"))
-
-def narrate(text, voice="Rachel"):
-    audio = generate(text=text, voice=voice)
-    save(audio, "story.mp3")
-    return "story.mp3"
-
-if st.button("Narrate This Story"):
-    audio_file = narrate(story_text)  # `story_text` is the generated story
-    st.audio(audio_file)
 import streamlit as st
 import openai
 import os
