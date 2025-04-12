@@ -1,0 +1,18 @@
+{
+  "name": "narrativax-studio",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "tauri": "tauri dev",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "svelte": "^3.59.1",
+    "@tauri-apps/api": "^1.5.0"
+  },
+  "devDependencies": {
+    "vite": "^4.5.0",
+    "@sveltejs/vite-plugin-svelte": "^2.0.2",
+    "typescript": "^5.2.0"
+  }
+}
