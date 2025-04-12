@@ -1,0 +1,26 @@
+{
+  "package": {
+    "productName": "NarrativaX Studio",
+    "version": "1.0.0"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "title": "NarrativaX",
+        "width": 1200,
+        "height": 800,
+        "resizable": true
+      }
+    ],
+    "bundle": {
+      "identifier": "com.narrativax.studio",
+      "icon": ["icons/128x128.png"]
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/Prosocr3ature/NarrativaX-OS/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
