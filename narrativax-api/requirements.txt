@@ -5,3 +5,4 @@ fpdf
 elevenlabs
 python-docx
 replicate
+pillow
