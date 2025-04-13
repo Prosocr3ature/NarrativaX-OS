@@ -5,6 +5,7 @@ import requests
 from io import BytesIO
 from PIL import Image
 from elevenlabs.client import ElevenLabs
+import random
 
 # API Keys
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -19,7 +20,17 @@ VOICES = {
     "Josh": "TxGEqnHWrfWFTfGW9XjX"
 }
 
-# Generate story with OpenAI
+# Style Presets
+STYLE_PRESETS = {
+    "Realistic": "in realistic style",
+    "Fantasy Art": "as detailed fantasy art, intricate lighting",
+    "Anime": "as Japanese anime character art",
+    "Cinematic": "cinematic illustration, depth of field",
+    "Cyberpunk": "neon cyberpunk futuristic atmosphere"
+}
+
+# Generate story
+
 def generate_story(prompt):
     response = openai.chat.completions.create(
         model="gpt-4",
@@ -29,27 +40,32 @@ def generate_story(prompt):
     )
     return response.choices[0].message.content.strip()
 
-# Generate cover image with DALL·E
-def generate_cover_image(prompt):
+# Generate cover images (3)
+
+def generate_cover_image(prompt, style_desc):
+    styled_prompt = f"{prompt} — {style_desc}"
     response = openai.images.generate(
         model="dall-e-3",
-        prompt=prompt,
+        prompt=styled_prompt,
         size="1024x1024",
         quality="standard",
-        n=1
+        n=3
     )
-    return response.data[0].url
+    return [item.url for item in response.data], styled_prompt
 
-# Narrate story with ElevenLabs
+# Narrate story
+
 def narrate_story(story_text, voice_id):
-    audio = eleven_client.text_to_speech.convert(
+    stream = eleven_client.text_to_speech.convert(
         voice_id=voice_id,
         model_id="eleven_monolingual_v1",
-        text=story_text
+        text=story_text,
+        stream=True
     )
     path = f"narration_{voice_id}.mp3"
     with open(path, "wb") as f:
-        f.write(audio)
+        for chunk in stream:
+            f.write(chunk)
     return path
 
 # Streamlit UI
@@ -60,6 +76,19 @@ story_prompt = st.text_area("Describe your story idea:", height=200)
 voice_name = st.selectbox("Choose narrator voice", list(VOICES.keys()))
 voice_id = VOICES[voice_name]
 
+# Style picker
+preset = st.selectbox("Choose cover image style preset", list(STYLE_PRESETS.keys()) + ["Custom"])
+if preset == "Custom":
+    style_description = st.text_input("Describe your custom style")
+else:
+    style_description = STYLE_PRESETS[preset]
+
+if st.button("Surprise Me with Random Style"):
+    preset = random.choice(list(STYLE_PRESETS.keys()))
+    style_description = STYLE_PRESETS[preset]
+    st.success(f"Random style chosen: {preset}")
+
+# Generate story
 if st.button("Generate Story"):
     with st.spinner("Summoning GPT..."):
         try:
@@ -70,17 +99,29 @@ if st.button("Generate Story"):
         except Exception as e:
             st.error(f"Story generation failed: {e}")
 
-if st.button("Generate Cover Image"):
+# Generate 3 covers
+if st.button("Generate 3 Cover Options"):
     if "story_text" in st.session_state:
-        with st.spinner("Creating cover with DALL·E..."):
+        with st.spinner("Creating covers with DALL·E..."):
             try:
-                img_url = generate_cover_image(st.session_state.story_text[:300])
-                st.image(img_url, caption="AI-Generated Cover", use_column_width=True)
+                urls, final_prompt = generate_cover_image(st.session_state.story_text[:300], style_description)
+                st.session_state.generated_covers = urls
+                st.session_state.cover_prompt = final_prompt
             except Exception as e:
                 st.error(f"Cover generation failed: {e}")
     else:
         st.warning("Generate a story first.")
 
+# Select and show cover
+if "generated_covers" in st.session_state:
+    selected = st.radio("Select a cover to download:", options=range(3), format_func=lambda i: f"Option {i+1}")
+    for i, url in enumerate(st.session_state.generated_covers):
+        st.image(url, caption=f"Option {i+1}\nPrompt: {st.session_state.cover_prompt}", use_column_width=True)
+    if st.button("Download Selected Cover"):
+        img_data = requests.get(st.session_state.generated_covers[selected]).content
+        st.download_button("Download Image", img_data, file_name=f"cover_option_{selected+1}.png", mime="image/png")
+
+# Narration
 if st.button("Narrate Story with ElevenLabs"):
     if "story_text" in st.session_state:
         with st.spinner("Narrating with ElevenLabs..."):
