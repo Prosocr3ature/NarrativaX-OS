@@ -9,9 +9,9 @@ import replicate
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+HF_API_TOKEN = os.getenv("HF_API_TOKEN")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 set_api_key(ELEVEN_API_KEY)
-
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
 # CONFIG
@@ -37,6 +37,9 @@ MODELS = [
     "cognitivecomputations/dolphin-mixtral"
 ]
 
+IMAGE_ENGINES = ["Replicate", "Hugging Face"]
+
+# --- AI UTILS ---
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -76,24 +79,45 @@ def generate_characters(prompt, genre, tone, model):
         f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.",
         model)
 
-# NEW: Using Replicate to generate images via RevAnimated v1.2.2
+# --- IMAGE GENERATION ---
 def generate_image(prompt):
-    with st.spinner("Generating image via Replicate..."):
-        try:
-            output = replicate_client.run(
-                "92john/revanimated-v122",
-                input={
-                    "prompt": prompt,
-                    "num_inference_steps": 30,
-                    "guidance_scale": 7.5,
-                    "width": 768,
-                    "height": 1024
-                }
+    if st.session_state.get("img_engine") == "Hugging Face":
+        headers = {
+            "Authorization": f"Bearer {HF_API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        payload = {"inputs": prompt}
+        with st.spinner("Generating image via Hugging Face..."):
+            r = requests.post(
+                "https://api-inference.huggingface.co/models/stablediffusionapi/revanimatedv122",
+                headers=headers, json=payload
             )
-            return output[0]
-        except Exception as e:
-            st.error(f"Image generation failed: {str(e)}")
-            return None
+            if r.ok:
+                img_data = r.content
+                tmp = NamedTemporaryFile(delete=False, suffix=".png")
+                with open(tmp.name, "wb") as f:
+                    f.write(img_data)
+                return tmp.name
+            else:
+                st.error(f"Hugging Face Error {r.status_code}: {r.text}")
+                return None
+    else:
+        with st.spinner("Generating image via Replicate..."):
+            try:
+                output = replicate_client.run(
+                    "92john/revanimated-v122",
+                    input={
+                        "prompt": prompt,
+                        "num_inference_steps": 30,
+                        "guidance_scale": 7.5,
+                        "width": 768,
+                        "height": 1024
+                    }
+                )
+                return output[0]
+            except Exception as e:
+                st.error(f"Replicate Error: {str(e)}")
+                return None
 
 def generate_cover(prompt):
     return generate_image(prompt + ", full book cover, illustration")
@@ -185,6 +209,8 @@ chapter_count = st.slider("Chapters", 6, 20, 8)
 model = st.selectbox("Choose LLM", MODELS)
 voice = st.selectbox("Voice", list(VOICES.keys()))
 voice_id = VOICES[voice]
+img_engine = st.selectbox("Image Engine", IMAGE_ENGINES)
+st.session_state.img_engine = img_engine
 
 if st.button("Create Full Book"):
     with st.spinner("Generating outline and chapters..."):
@@ -237,6 +263,7 @@ if "book" in st.session_state:
             for i, desc in enumerate(st.session_state.characters.split("\n\n")[:3]):
                 try:
                     url = generate_image(desc)
-                    st.image(url, caption=f"Character {i+1}", use_container_width=True)
+                    if url:
+                        st.image(url, caption=f"Character {i+1}", use_container_width=True)
                 except:
                     st.warning(f"Image generation failed: Character {i+1}")
