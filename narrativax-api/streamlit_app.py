@@ -3,7 +3,7 @@ import streamlit as st
 import requests
 from elevenlabs.client import ElevenLabs
 
-# Load API keys
+# API keys
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
@@ -18,8 +18,7 @@ VOICES = {
     "Josh": "TxGEqnHWrfWFTfGW9XjX"
 }
 
-# Generate story from OpenRouter using Mistral
-
+# Generate story from OpenRouter (Mistral)
 def generate_story(prompt):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -37,17 +36,22 @@ def generate_story(prompt):
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-# Generate DALL-E cover image via OpenAI
+# DALL·E 3 only cover generation
+def generate_cover(prompt: str) -> str:
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}"
+    }
+    data = {
+        "model": "dall-e-3",
+        "prompt": prompt,
+        "n": 1,
+        "size": "1024x1024"
+    }
+    response = requests.post("https://api.openai.com/v1/images/generations", headers=headers, json=data)
+    response.raise_for_status()
+    return response.json()["data"][0]["url"]
 
-def generate_cover(prompt):
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-    data = {"prompt": prompt, "n": 1, "size": "1024x1024"}
-    res = requests.post("https://api.openai.com/v1/images/generations", headers=headers, json=data)
-    res.raise_for_status()
-    return res.json()["data"][0]["url"]
-
-# Narrate story via ElevenLabs
-
+# ElevenLabs narration
 def narrate_story(text, voice_id):
     stream = eleven_client.text_to_speech.convert(
         voice_id=voice_id,
@@ -81,9 +85,10 @@ if st.button("Generate Story"):
 
 if st.button("Generate Cover Image"):
     if "story" in st.session_state:
-        with st.spinner("Generating cover with DALL·E..."):
+        with st.spinner("Generating cover with DALL·E 3..."):
             try:
                 img_url = generate_cover(st.session_state.story[:300])
+                st.session_state.cover_image_url = img_url
                 st.image(img_url, caption="AI-Generated Cover", use_column_width=True)
             except Exception as e:
                 st.error(f"Cover generation failed: {e}")
