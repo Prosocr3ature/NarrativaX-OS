@@ -1,5 +1,5 @@
-streamlit
 openai
-elevenlabs
+streamlit
 requests
 Pillow
+elevenlabs==0.2.27
