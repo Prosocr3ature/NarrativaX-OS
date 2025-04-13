@@ -1,5 +1,5 @@
 streamlit>=1.31.0
-openrouter
+openai>=1.0.0
 Pillow
 requests
 elevenlabs
