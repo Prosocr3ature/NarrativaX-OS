@@ -5,7 +5,9 @@ import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
-from elevenlabs import generate
+from elevenlabs import generate, set_api_key
+set_api_key(ELEVEN_API_KEY)
+
 
 # API KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
