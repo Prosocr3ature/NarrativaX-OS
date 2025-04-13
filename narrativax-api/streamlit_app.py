@@ -240,7 +240,7 @@ if "book" in st.session_state:
                 except:
                     st.warning(f"Image generation failed: Character {i+1}")
 
-(delete=False, suffix=".docx")
+    f = NamedTemporaryFile(delete=False, suffix=".docx")
     doc.save(f.name)
     return f.name
 
