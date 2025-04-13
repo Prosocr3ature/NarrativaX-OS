@@ -3,7 +3,7 @@ import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
-from elevenlabs import generate, set_api_key  # Legacy-compatible
+from elevenlabs import generate, set_api_key
 
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -12,6 +12,14 @@ ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 set_api_key(ELEVEN_API_KEY)
 
 # CONFIG
+REPLICATE_MODELS = {
+    "Stable Diffusion XL 1.0 (public)": "db21e45e14aa502f98f4df6736d3f6e18f87827d7c642a14970df61aeb06d519",
+    "DreamShaper SDXL (semi-safe)": "9b36260f47d36a278cb9c19e54c3c1205dc2e8a7261a7d3d9268d8a08850b02a",
+    "Realistic Vision V5.1 (NSFW)": "cb1cf390b48b470a8aa4b529b2c16051f6e7f3dffae4a7207a2c384d0cd8b8d4",
+    "Deliberate V3 (NSFW)": "801c8b1c48f59c32e367a4c56e781b61a3e4b13ec9c63fbee53a09153a8c75b6",
+    "RevAnimated V1.2 (NSFW)": "f83df4b0dcaa9146d876e889443295b3f4a2cde2135e72d3ea7a5c6dcebd790f"
+}
+
 VOICES = {
     "Rachel": "EXAVITQu4vr4xnSDxMaL",
     "Bella": "29vD33N1CtxCmqQRPOHJ",
@@ -33,6 +41,25 @@ MODELS = [
     "nousresearch/nous-capybara-7b",
     "cognitivecomputations/dolphin-mixtral"
 ]
+
+def get_default_model(tone):
+    if tone in ["NSFW", "Hardcore"]:
+        return "Realistic Vision V5.1 (NSFW)"
+    return "Stable Diffusion XL 1.0 (public)"
+
+def log_nsfw_event(event_type, prompt):
+    log = {
+        "event": event_type,
+        "prompt": prompt,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    if "nsfw_log" not in st.session_state:
+        st.session_state.nsfw_log = []
+    st.session_state.nsfw_log.append(log)
+
+def blurred_image(img_url, key):
+    with st.expander("Click to reveal image", expanded=False):
+        st.image(img_url, use_container_width=True)
 
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
@@ -57,8 +84,7 @@ def generate_outline(prompt, genre, tone, chapters, model):
         model)
 
 def generate_section(title, outline, model):
-    return call_openrouter(f"""Write the section '{title}' in full based on this outline:
-{outline}""", model)
+    return call_openrouter(f"""Write the section '{title}' in full based on this outline:\n{outline}""", model)
 
 def generate_full_book(outline, chapters, model):
     book = {}
@@ -74,13 +100,13 @@ def generate_characters(prompt, genre, tone, model):
         f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.",
         model)
 
-def generate_image(prompt):
+def generate_image(prompt, version):
     headers = {
         "Authorization": f"Token {REPLICATE_API_TOKEN}",
         "Content-Type": "application/json"
     }
     data = {
-        "version": "a9758cb3b055d4e8b0718da739e74e5e93b6443702677c60a9b5c44c5767c67c",
+        "version": version,
         "input": {
             "prompt": prompt,
             "num_inference_steps": 30,
@@ -92,7 +118,6 @@ def generate_image(prompt):
 
     with st.spinner("Generating illustration..."):
         r = requests.post("https://api.replicate.com/v1/predictions", headers=headers, json=data)
-
         if not r.ok:
             st.error(f"Image generation failed: {r.status_code} {r.reason}")
             st.text(r.text)
@@ -105,7 +130,6 @@ def generate_image(prompt):
             check = requests.get(poll_url, headers=headers).json()
             current_status = check.get("status", "")
             status.info(f"Image generation status: {current_status}")
-
             if current_status == "succeeded":
                 status.empty()
                 st.success("Image generated successfully.")
@@ -116,7 +140,7 @@ def generate_image(prompt):
             time.sleep(1)
 
 def generate_cover(prompt):
-    return generate_image(prompt + ", full book cover, illustration")
+    return generate_image(prompt + ", full book cover, illustration", replicate_model_version)
 
 def chunk_text(text, max_tokens=400):
     return textwrap.wrap(text, max_tokens, break_long_words=False)
@@ -128,12 +152,7 @@ def narrate_story(text, voice_id, retries=3):
         try:
             with open(path, "wb") as f:
                 for part in chunks:
-                    stream = generate(
-                        text=part,
-                        voice=voice_id,
-                        model="eleven_monolingual_v1",
-                        stream=True
-                    )
+                    stream = generate(text=part, voice=voice_id, model="eleven_monolingual_v1", stream=True)
                     for chunk in stream:
                         f.write(chunk)
             return path
@@ -206,6 +225,16 @@ model = st.selectbox("Choose LLM", MODELS)
 voice = st.selectbox("Voice", list(VOICES.keys()))
 voice_id = VOICES[voice]
 
+default_model = get_default_model(tone)
+replicate_model_name = st.selectbox("Image Model", list(REPLICATE_MODELS.keys()), index=list(REPLICATE_MODELS.keys()).index(default_model))
+replicate_model_version = REPLICATE_MODELS[replicate_model_name]
+
+if tone in ["NSFW", "Hardcore"]:
+    log_nsfw_event("NSFW Story Prompt", prompt)
+    if not st.checkbox("I confirm I want to generate explicit content", key="nsfw_confirm"):
+        st.warning("Please confirm to continue with NSFW tone.")
+        st.stop()
+
 if st.button("Create Full Book"):
     with st.spinner("Generating outline and chapters..."):
         outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
@@ -226,8 +255,11 @@ if "book" in st.session_state:
                 st.session_state.book[title] += "\n\n" + addition
                 st.markdown(addition)
             if st.button(f"Generate Illustration for {title}", key=f"img_{title}"):
-                img_url = generate_image(content[:300])
-                st.image(img_url, caption=f"{title} Art", use_container_width=True)
+                img_url = generate_image(content[:300], replicate_model_version)
+                if "NSFW" in replicate_model_name.upper() or "HARDCORE" in tone:
+                    blurred_image(img_url, key=f"img_{title}")
+                else:
+                    st.image(img_url, caption=f"{title} Art", use_container_width=True)
 
     st.subheader("Export Book")
     col1, col2 = st.columns(2)
@@ -254,7 +286,10 @@ if "book" in st.session_state:
         if st.button("Visualize Characters"):
             for i, desc in enumerate(st.session_state.characters.split("\n\n")[:3]):
                 try:
-                    url = generate_image(desc)
-                    st.image(url, caption=f"Character {i+1}", use_container_width=True)
+                    url = generate_image(desc, replicate_model_version)
+                    if "NSFW" in replicate_model_name.upper() or "HARDCORE" in tone:
+                        blurred_image(url, key=f"char_{i+1}")
+                    else:
+                        st.image(url, caption=f"Character {i+1}", use_container_width=True)
                 except:
                     st.warning(f"Image generation failed: Character {i+1}")
