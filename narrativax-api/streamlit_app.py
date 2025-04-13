@@ -8,7 +8,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 
-# Voices
+# ElevenLabs Voice IDs
 VOICES = {
     "Rachel": "EXAVITQu4vr4xnSDxMaL",
     "Bella": "29vD33N1CtxCmqQRPOHJ",
@@ -18,6 +18,7 @@ VOICES = {
 }
 
 # Generate story using OpenRouter
+
 def generate_story(prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
@@ -35,6 +36,7 @@ def generate_story(prompt):
     return response.json()["choices"][0]["message"]["content"]
 
 # Generate single cover image
+
 def generate_cover_image(prompt):
     dalle_url = "https://api.openai.com/v1/images/generations"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
@@ -49,6 +51,7 @@ def generate_cover_image(prompt):
     return response.json()["data"][0]["url"]
 
 # Narrate with ElevenLabs
+
 def narrate_story(text, voice_id):
     audio = eleven_client.text_to_speech.convert(
         voice_id=voice_id,
