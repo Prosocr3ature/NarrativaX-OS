@@ -40,7 +40,7 @@ def generate_story(prompt):
     )
     return response.choices[0].message.content.strip()
 
-# Generate cover images (3)
+# Generate single cover image
 
 def generate_cover_image(prompt, style_desc):
     styled_prompt = f"{prompt} — {style_desc}"
@@ -49,9 +49,9 @@ def generate_cover_image(prompt, style_desc):
         prompt=styled_prompt,
         size="1024x1024",
         quality="standard",
-        n=3
+        n=1
     )
-    return [item.url for item in response.data], styled_prompt
+    return response.data[0].url, styled_prompt
 
 # Narrate story
 
@@ -99,27 +99,25 @@ if st.button("Generate Story"):
         except Exception as e:
             st.error(f"Story generation failed: {e}")
 
-# Generate 3 covers
-if st.button("Generate 3 Cover Options"):
+# Generate 1 cover image
+if st.button("Generate Cover Image"):
     if "story_text" in st.session_state:
-        with st.spinner("Creating covers with DALL·E..."):
+        with st.spinner("Creating cover with DALL·E..."):
             try:
-                urls, final_prompt = generate_cover_image(st.session_state.story_text[:300], style_description)
-                st.session_state.generated_covers = urls
+                url, final_prompt = generate_cover_image(st.session_state.story_text[:300], style_description)
+                st.session_state.generated_cover = url
                 st.session_state.cover_prompt = final_prompt
             except Exception as e:
                 st.error(f"Cover generation failed: {e}")
     else:
         st.warning("Generate a story first.")
 
-# Select and show cover
-if "generated_covers" in st.session_state:
-    selected = st.radio("Select a cover to download:", options=range(3), format_func=lambda i: f"Option {i+1}")
-    for i, url in enumerate(st.session_state.generated_covers):
-        st.image(url, caption=f"Option {i+1}\nPrompt: {st.session_state.cover_prompt}", use_column_width=True)
-    if st.button("Download Selected Cover"):
-        img_data = requests.get(st.session_state.generated_covers[selected]).content
-        st.download_button("Download Image", img_data, file_name=f"cover_option_{selected+1}.png", mime="image/png")
+# Display selected cover image
+if "generated_cover" in st.session_state:
+    st.image(st.session_state.generated_cover, caption=f"Prompt: {st.session_state.cover_prompt}", use_column_width=True)
+    if st.button("Download Cover Image"):
+        img_data = requests.get(st.session_state.generated_cover).content
+        st.download_button("Download Image", img_data, file_name="cover_image.png", mime="image/png")
 
 # Narration
 if st.button("Narrate Story with ElevenLabs"):
