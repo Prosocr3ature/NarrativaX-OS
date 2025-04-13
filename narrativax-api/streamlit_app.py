@@ -1,4 +1,4 @@
-import os, time, textwrap, requests, pyttsx3
+import os, time, textwrap, requests, pyttsx3, json
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
@@ -9,7 +9,7 @@ from elevenlabs import generate, set_api_key  # Legacy-compatible
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
-set_api_key(ELEVEN_API_KEY)  # Legacy-style init
+set_api_key(ELEVEN_API_KEY)
 
 # CONFIG
 VOICES = {
@@ -62,8 +62,11 @@ def generate_section(title, outline, model):
 
 def generate_full_book(outline, chapters, model):
     book = {}
-    for sec in ["Foreword", "Introduction"] + [f"Chapter {i+1}" for i in range(chapters)] + ["Final Words"]:
+    sections = ["Foreword", "Introduction"] + [f"Chapter {i+1}" for i in range(chapters)] + ["Final Words"]
+    progress = st.progress(0)
+    for idx, sec in enumerate(sections):
         book[sec] = generate_section(sec, outline, model)
+        progress.progress((idx + 1) / len(sections))
     return book
 
 def generate_characters(prompt, genre, tone, model):
@@ -145,9 +148,32 @@ def export_pdf(data):
     pdf.output(f.name)
     return f.name
 
+# Session management
+def save_session_json():
+    if "book" in st.session_state:
+        with open("session.json", "w") as f:
+            json.dump(st.session_state.book, f)
+
+def load_session_json():
+    try:
+        with open("session.json") as f:
+            st.session_state.book = json.load(f)
+    except Exception as e:
+        st.warning(f"Could not load session: {e}")
+
 # --- UI ---
 st.set_page_config(page_title="NarrativaX Studio", layout="wide")
 st.title("NarrativaX — AI Book Creation Studio")
+
+col3, col4 = st.columns(2)
+with col3:
+    if st.button("Save Session to File"):
+        save_session_json()
+        st.success("Session saved.")
+    st.download_button("Download Session JSON", json.dumps(st.session_state.get("book", {})), file_name="session.json")
+with col4:
+    if st.button("Load Session from File"):
+        load_session_json()
 
 prompt = st.text_area("Book Idea:", height=200)
 genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"])
