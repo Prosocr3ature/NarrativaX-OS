@@ -1,4 +1,3 @@
-
 import os, time, textwrap, requests, pyttsx3, json
 import streamlit as st
 from docx import Document
