@@ -1,130 +1,89 @@
+# narrativax-api/streamlit_app.py
+
 import os
 import streamlit as st
-import openai
 import requests
 from io import BytesIO
 from PIL import Image
-from elevenlabs.client import ElevenLabs
-import random
+from elevenlabs import generate, play, set_api_key
 
-# API Keys
-openai.api_key = os.getenv("OPENAI_API_KEY")
-eleven_client = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
+# OpenRouter (uncensored model) and ElevenLabs API keys
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+set_api_key(os.getenv("ELEVEN_API_KEY"))
 
-# ElevenLabs Voice IDs
-VOICES = {
-    "Rachel": "EXAVITQu4vr4xnSDxMaL",
-    "Bella": "29vD33N1CtxCmqQRPOHJ",
-    "Antoni": "ErXwobaYiN019PkySvjV",
-    "Elli": "MF3mGyEYCl7XYWbV9V6O",
-    "Josh": "TxGEqnHWrfWFTfGW9XjX"
-}
+# Available voice options
+VOICES = ["Rachel", "Bella", "Antoni", "Elli", "Josh"]
 
-# Style Presets
-STYLE_PRESETS = {
-    "Realistic": "in realistic style",
-    "Fantasy Art": "as detailed fantasy art, intricate lighting",
-    "Anime": "as Japanese anime character art",
-    "Cinematic": "cinematic illustration, depth of field",
-    "Cyberpunk": "neon cyberpunk futuristic atmosphere"
-}
-
-# Generate story
-
+# Generate story via OpenRouter (Dolphin Mixtral)
 def generate_story(prompt):
-    response = openai.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.85,
-        max_tokens=700
-    )
-    return response.choices[0].message.content.strip()
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "cognitivecomputations/dolphin-mixtral-8x22b",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.9
+    }
 
-# Generate single cover image
+    response = requests.post(url, json=payload, headers=headers)
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
 
-def generate_cover_image(prompt, style_desc):
-    styled_prompt = f"{prompt} — {style_desc}"
-    response = openai.images.generate(
-        model="dall-e-3",
-        prompt=styled_prompt,
-        size="1024x1024",
-        quality="standard",
-        n=1
-    )
-    return response.data[0].url, styled_prompt
+# DALL·E cover generation
+def generate_cover_image(prompt):
+    openai_key = os.getenv("OPENAI_API_KEY")
+    dalle_url = "https://api.openai.com/v1/images/generations"
+    headers = {"Authorization": f"Bearer {openai_key}"}
+    json_data = {"prompt": prompt, "n": 1, "size": "512x512"}
 
-# Narrate story
+    response = requests.post(dalle_url, headers=headers, json=json_data)
+    response.raise_for_status()
+    return response.json()["data"][0]["url"]
 
-def narrate_story(story_text, voice_id):
-    stream = eleven_client.text_to_speech.convert(
-        voice_id=voice_id,
-        model_id="eleven_monolingual_v1",
-        text=story_text,
-        stream=True
-    )
-    path = f"narration_{voice_id}.mp3"
-    with open(path, "wb") as f:
-        for chunk in stream:
+# Narrate story with ElevenLabs
+def narrate_story(story, voice):
+    audio_stream = generate(text=story, voice=voice, model="eleven_monolingual_v1")
+    audio_path = f"narration_{voice}.mp3"
+    with open(audio_path, "wb") as f:
+        for chunk in audio_stream:
             f.write(chunk)
-    return path
+    return audio_path
 
-# Streamlit UI
+# Streamlit interface
 st.set_page_config(page_title="NarrativaX AI Story Generator", layout="centered")
 st.title("NarrativaX AI Story Generator")
 
 story_prompt = st.text_area("Describe your story idea:", height=200)
-voice_name = st.selectbox("Choose narrator voice", list(VOICES.keys()))
-voice_id = VOICES[voice_name]
+voice_option = st.selectbox("Choose narrator voice", VOICES)
 
-# Style picker
-preset = st.selectbox("Choose cover image style preset", list(STYLE_PRESETS.keys()) + ["Custom"])
-if preset == "Custom":
-    style_description = st.text_input("Describe your custom style")
-else:
-    style_description = STYLE_PRESETS[preset]
-
-if st.button("Surprise Me with Random Style"):
-    preset = random.choice(list(STYLE_PRESETS.keys()))
-    style_description = STYLE_PRESETS[preset]
-    st.success(f"Random style chosen: {preset}")
-
-# Generate story
 if st.button("Generate Story"):
-    with st.spinner("Summoning GPT..."):
+    with st.spinner("Summoning uncensored story..."):
         try:
             story_text = generate_story(story_prompt)
+            st.session_state.story_text = story_text
             st.success("Here's your story:")
             st.markdown(story_text)
-            st.session_state.story_text = story_text
         except Exception as e:
             st.error(f"Story generation failed: {e}")
 
-# Generate 1 cover image
 if st.button("Generate Cover Image"):
     if "story_text" in st.session_state:
         with st.spinner("Creating cover with DALL·E..."):
             try:
-                url, final_prompt = generate_cover_image(st.session_state.story_text[:300], style_description)
-                st.session_state.generated_cover = url
-                st.session_state.cover_prompt = final_prompt
+                image_url = generate_cover_image(st.session_state.story_text[:150])
+                st.image(image_url, caption="AI-Generated Cover", use_column_width=True)
             except Exception as e:
                 st.error(f"Cover generation failed: {e}")
     else:
         st.warning("Generate a story first.")
 
-# Display selected cover image
-if "generated_cover" in st.session_state:
-    st.image(st.session_state.generated_cover, caption=f"Prompt: {st.session_state.cover_prompt}", use_column_width=True)
-    if st.button("Download Cover Image"):
-        img_data = requests.get(st.session_state.generated_cover).content
-        st.download_button("Download Image", img_data, file_name="cover_image.png", mime="image/png")
-
-# Narration
 if st.button("Narrate Story with ElevenLabs"):
     if "story_text" in st.session_state:
-        with st.spinner("Narrating with ElevenLabs..."):
+        with st.spinner("Narrating..."):
             try:
-                audio_path = narrate_story(st.session_state.story_text, voice_id)
+                audio_path = narrate_story(st.session_state.story_text, voice=voice_option)
                 st.audio(audio_path)
             except Exception as e:
                 st.error(f"Narration failed: {e}")
