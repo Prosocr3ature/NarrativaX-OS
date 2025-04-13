@@ -6,8 +6,7 @@ import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
-from elevenlabs import generate
-from elevenlabs.client import ElevenLabs
+from elevenlabs.client import ElevenLabs  # FIXED import
 
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -105,7 +104,12 @@ def narrate_story(text, voice_id, retries=3):
         try:
             with open(path, "wb") as f:
                 for part in chunks:
-                    stream = generate(text=part, voice=voice_id, model="eleven_monolingual_v1", stream=True)
+                    stream = eleven_client.generate(
+                        text=part,
+                        voice=voice_id,
+                        model="eleven_monolingual_v1",
+                        stream=True
+                    )
                     for chunk in stream:
                         f.write(chunk)
             return path
