@@ -10,7 +10,7 @@ from elevenlabs import generate, save, set_api_key
 
 # Set your API keys
 openai.api_key = os.getenv("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")
-set_api_key(os.getenv("sk_2cc5e16d7dba729974d8b2c58bd562eb032060aa75fc849f"))
+set_api_key(os.getenv("ELEVEN_API_KEY"))
 
 # Available ElevenLabs voices
 VOICES = ["Rachel", "Bella", "Antoni", "Elli", "Josh"]
