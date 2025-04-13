@@ -1,5 +1,6 @@
-streamlit>=1.31.0
-openai>=1.0.0
-Pillow
+streamlit
 requests
+docx
+fpdf
 elevenlabs
+python-docx
