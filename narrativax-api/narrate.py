@@ -1,7 +1,7 @@
 import os
 from elevenlabs.client import ElevenLabs
 
-client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+client = ElevenLabs(api_key=os.getenv("sk_2cc5e16d7dba729974d8b2c58bd562eb032060aa75fc849f"))
 
 def narrate_story(text, voice="Rachel", output_path="story.mp3"):
     audio = client.generate(
