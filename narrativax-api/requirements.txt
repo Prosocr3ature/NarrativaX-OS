@@ -4,3 +4,4 @@ docx
 fpdf
 elevenlabs
 python-docx
+replicate
