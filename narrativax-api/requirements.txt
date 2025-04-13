@@ -1,6 +1,6 @@
 streamlit>=1.32.0
 requests
+docx
 fpdf
-python-docx
-elevenlabs==0.2.26
 pyttsx3
+elevenlabs==1.0.11
