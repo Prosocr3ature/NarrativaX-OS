@@ -1,8 +1,8 @@
-streamlit
-requests
+streamlit>=1.30
+requests>=2.31
 docx
 fpdf
-elevenlabs
+elevenlabs==0.2.6
 python-docx
 replicate
 pillow
