@@ -1,22 +1,20 @@
-# streamlit_app.py — NarrativaX Final Pro Version
-# Includes: full book builder, chapter playback, character AI, SDXL covers, model selection, save/resume
+# NarrativaX — Final Version with TTS retry, fallback, and model selection
 
-import os
+import os, time, textwrap, requests, pyttsx3
 import streamlit as st
-import requests
-import textwrap
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
+from elevenlabs import generate
 from elevenlabs.client import ElevenLabs
 
-# --- API KEYS ---
+# API KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY)
 
-# --- Config ---
+# VOICES
 VOICES = {
     "Rachel": "EXAVITQu4vr4xnSDxMaL",
     "Bella": "29vD33N1CtxCmqQRPOHJ",
@@ -31,15 +29,16 @@ TONE_MAP = {
     "Hardcore": "intense, vulgar, graphic, pornographic"
 }
 
-MODEL_MAP = {
-    "Celeste 12B (Creative)": "nothingiisreal/mn-celeste-12b",
-    "MythoMax (Balanced)": "gryphe/mythomax-l2-13b",
-    "Dolphin (Fast)": "cognitivecomputations/dolphin-2.2.1-mistral-7b",
-    "Hermes 2 (Conversational)": "nousresearch/nous-hermes-2-mixtral"
-}
+MODELS = [
+    "nothingiisreal/mn-celeste-12b",
+    "openchat/openchat-3.5-0106",
+    "gryphe/mythomax-l2-13b",
+    "nousresearch/nous-capybara-7b",
+    "cognitivecomputations/dolphin-mixtral"
+]
 
-# --- LLM Generation ---
-def call_openrouter(prompt, model_id):
+# --- Core LLM via OpenRouter ---
+def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -47,40 +46,48 @@ def call_openrouter(prompt, model_id):
         "X-Title": "NarrativaX"
     }
     payload = {
-        "model": model_id,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.95,
-        "max_tokens": 1800
+        "max_tokens": max_tokens
     }
     r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
-# --- Book ---
-def generate_outline(prompt, genre, tone, chapters, model_id):
-    q = f"""You are a ghostwriter. Create a full outline for a {tone} {genre} book with {chapters} chapters.
-    Include: Title, Foreword, Introduction, Chapter titles, Final Words.
-    Theme: {prompt}"""
-    return call_openrouter(q, model_id)
+# --- Book Builder ---
+def generate_outline(prompt, genre, tone, chapters, model):
+    q = f"""
+    You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters.
+    Include:
+    - Title
+    - Foreword
+    - Introduction
+    - {chapters} chapter titles
+    - Final Words
+    Concept: {prompt}
+    """
+    return call_openrouter(q, model)
 
-def generate_full_book(outline, chapters, model_id):
-    data = {}
-    for i, sec in enumerate(["Foreword", "Introduction"] + [f"Chapter {i+1}" for i in range(chapters)] + ["Final Words"]):
-        st.info(f"Writing {sec}... ({i+1}/{chapters+3})")
-        p = f"Write the full section '{sec}' based on this outline:\n{outline}\nMake it immersive and on-tone."
-        data[sec] = call_openrouter(p, model_id)
-        st.progress((i+1) / (chapters+3))
-    return data
+def generate_section(title, outline, model):
+    p = f"Write the section '{title}' in full based on this outline:\n{outline}\nMake it intelligent, immersive, and genre consistent."
+    return call_openrouter(p, model)
 
-def continue_section(title, outline, model_id):
-    q = f"Continue and extend the section '{title}' in the same style. Use the following outline:\n{outline}"
-    return call_openrouter(q, model_id)
+def generate_full_book(outline, chapters, model):
+    book_data = {}
+    for sec in ["Foreword", "Introduction"] + [f"Chapter {i+1}" for i in range(chapters)] + ["Final Words"]:
+        book_data[sec] = generate_section(sec, outline, model)
+    return book_data
 
-# --- Character + Cover ---
-def generate_characters(prompt, genre, tone, model_id):
-    q = f"""Generate 3 vivid characters for a {tone} {genre} story about: {prompt}.
-    Format: Name, Role, Appearance, Personality, Motivation, Secret (optional)"""
-    return call_openrouter(q, model_id)
+# --- Characters ---
+def generate_characters(prompt, genre, tone, model):
+    q = f"""
+    Generate 3 unique characters for a {tone} {genre} story based on this:
+    {prompt}
+    Format:
+    Name, Role, Appearance, Personality, Motivation, Secret (optional)
+    """
+    return call_openrouter(q, model)
 
 def generate_character_image(desc):
     url = "https://api.replicate.com/v1/predictions"
@@ -96,37 +103,53 @@ def generate_character_image(desc):
             "height": 1024
         }
     }
-    r = requests.post(url, headers=headers, json=json_data)
-    r.raise_for_status()
-    poll_url = r.json()["urls"]["get"]
+    res = requests.post(url, headers=headers, json=json_data)
+    res.raise_for_status()
+    poll_url = res.json()["urls"]["get"]
     while True:
-        result = requests.get(poll_url, headers=headers).json()
-        if result["status"] == "succeeded":
-            return result["output"][0]
-        elif result["status"] == "failed":
-            raise RuntimeError("Image failed.")
+        check = requests.get(poll_url, headers=headers).json()
+        if check["status"] == "succeeded":
+            return check["output"][0]
+        elif check["status"] == "failed":
+            raise RuntimeError("Character image generation failed.")
 
+# --- Cover ---
 def generate_cover(prompt):
-    return generate_character_image(prompt + ", full book cover, high fantasy")
+    return generate_character_image(prompt + ", full book cover")
 
-# --- Narration ---
+# --- TTS ---
 def chunk_text(text, max_tokens=400):
     return textwrap.wrap(text, max_tokens, break_long_words=False)
 
-def narrate_story(text, voice_id):
+def narrate_story(text, voice_id, retries=3):
     chunks = chunk_text(text)
     path = f"narration_{voice_id}.mp3"
-    with open(path, "wb") as f:
-        for part in chunks:
-            stream = eleven_client.text_to_speech.convert(
-                voice_id=voice_id,
-                model_id="eleven_monolingual_v1",
-                text=part,
-                stream=True
-            )
-            for chunk in stream:
-                f.write(chunk)
-    return path
+    for attempt in range(retries):
+        try:
+            with open(path, "wb") as f:
+                for part in chunks:
+                    stream = generate(
+                        text=part,
+                        voice=voice_id,
+                        model="eleven_monolingual_v1",
+                        stream=True
+                    )
+                    for chunk in stream:
+                        f.write(chunk)
+            return path
+        except Exception as e:
+            st.warning(f"TTS attempt {attempt+1} failed: {e}")
+            time.sleep(2)
+    # Fallback
+    fallback = f"fallback_{voice_id}.mp3"
+    try:
+        engine = pyttsx3.init()
+        engine.save_to_file(text, fallback)
+        engine.runAndWait()
+        return fallback
+    except Exception as fe:
+        st.error(f"Local TTS failed too: {fe}")
+        return None
 
 # --- Export ---
 def export_docx(book_data):
@@ -153,83 +176,64 @@ def export_pdf(book_data):
     return f.name
 
 # --- UI ---
-st.set_page_config(page_title="NarrativaX Studio", layout="wide")
-st.title("NarrativaX — AI Ghostwriter & Publisher")
+st.set_page_config(page_title="NarrativaX", layout="wide")
+st.title("NarrativaX — AI Ghostwriter OS")
 
-prompt = st.text_area("Story Idea:", height=200)
-genre = st.selectbox("Genre", list(["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"]))
-tone = st.selectbox("Tone", list(TONE_MAP.keys()))
-model_name = st.selectbox("OpenRouter Model", list(MODEL_MAP.keys()))
-model_id = MODEL_MAP[model_name]
-chapters = st.slider("Number of Chapters", 6, 20, 10)
-voice = st.selectbox("Narrator", list(VOICES.keys()))
+prompt = st.text_area("Book Concept:", height=160)
+genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"])
+tone = st.selectbox("Explicitness", list(TONE_MAP.keys()))
+chapter_count = st.slider("Chapters", 6, 20, 10)
+model = st.selectbox("LLM Model", MODELS)
+voice = st.selectbox("Voice", list(VOICES.keys()))
 voice_id = VOICES[voice]
 
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Generate Book"):
-        with st.spinner("Creating Outline..."):
-            outline = generate_outline(prompt, genre, TONE_MAP[tone], chapters, model_id)
-            st.session_state.outline = outline
-        with st.spinner("Generating Book..."):
-            book = generate_full_book(outline, chapters, model_id)
-            st.session_state.book = book
-            st.success("Book Ready!")
-            st.balloons()
+# --- Flow ---
+if st.button("Generate Book"):
+    with st.spinner("Outlining and writing..."):
+        outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
+        st.session_state.outline = outline
+        book = generate_full_book(outline, chapter_count, model)
+        st.session_state.book = book
 
-with col2:
-    if st.button("Save Progress"):
-        st.session_state.saved = {
-            "prompt": prompt,
-            "outline": st.session_state.get("outline", ""),
-            "book": st.session_state.get("book", {})
-        }
-        st.success("Session Saved.")
-
-if "saved" in st.session_state:
-    if st.button("Resume Saved Session"):
-        st.session_state.update(st.session_state.saved)
-        st.success("Session Restored.")
-
-# --- Book Output ---
 if "book" in st.session_state:
-    st.subheader("Book Output & Controls")
+    st.subheader("Book Chapters")
     for k, v in st.session_state.book.items():
-        with st.expander(f"{k}"):
-            st.text_area("Generated Text", v, key=f"view-{k}", height=400)
-            if st.button(f"Narrate {k}", key=f"narrate-{k}"):
+        with st.expander(k, expanded=True):
+            st.markdown(v, unsafe_allow_html=True)
+            if st.button(f"Narrate {k}", key=f"voice_{k}"):
                 audio = narrate_story(v, voice_id)
                 st.audio(audio)
-            if st.button(f"Continue Writing {k}", key=f"cont-{k}"):
-                cont = continue_section(k, st.session_state.outline, model_id)
-                st.session_state.book[k] += "\n" + cont
-                st.experimental_rerun()
+            if st.button(f"Continue Writing: {k}", key=f"continue_{k}"):
+                added = call_openrouter(f"Expand the chapter: {v}", model)
+                st.session_state.book[k] += "\n" + added
+                st.markdown(added)
 
-    st.subheader("Export Book")
-    if st.button("Download DOCX"):
-        path = export_docx(st.session_state.book)
-        st.download_button("📄 Download DOCX", open(path, "rb"), file_name="NarrativaX_Book.docx")
+    st.subheader("Export")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Export DOCX"):
+            path = export_docx(st.session_state.book)
+            st.download_button("Download .docx", open(path, "rb"), file_name="book.docx")
+    with col2:
+        if st.button("Export PDF"):
+            path = export_pdf(st.session_state.book)
+            st.download_button("Download .pdf", open(path, "rb"), file_name="book.pdf")
 
-    if st.button("Download PDF"):
-        path = export_pdf(st.session_state.book)
-        st.download_button("📄 Download PDF", open(path, "rb"), file_name="NarrativaX_Book.pdf")
-
-    st.subheader("Generate Cover")
-    if st.button("Create Cover"):
+    st.subheader("Book Cover")
+    if st.button("Generate Cover"):
         url = generate_cover(prompt)
-        st.image(url, caption="AI Book Cover", use_container_width=True)
+        st.image(url, use_container_width=True)
 
-    st.subheader("Build Characters")
+    st.subheader("Characters")
     if st.button("Generate Characters"):
-        chars = generate_characters(prompt, genre, TONE_MAP[tone], model_id)
+        chars = generate_characters(prompt, genre, TONE_MAP[tone], model)
+        st.text_area("Character Profiles", chars, height=250)
         st.session_state.characters = chars
-        st.text_area("Characters", chars, height=300)
-
     if "characters" in st.session_state:
         if st.button("Visualize Characters"):
-            for i, profile in enumerate(st.session_state.characters.split("\n\n")[:3]):
+            for i, desc in enumerate(st.session_state.characters.split("\n\n")[:3]):
                 try:
-                    img = generate_character_image(profile)
-                    st.image(img, caption=f"Character {i+1}", use_container_width=True)
+                    url = generate_character_image(desc)
+                    st.image(url, caption=f"Character {i+1}", use_container_width=True)
                 except:
-                    st.warning(f"Image failed for Character {i+1}")
+                    st.warning(f"Image failed for character {i+1}")
