@@ -3,13 +3,13 @@ import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
-from elevenlabs import ElevenLabs  # Updated import
+from elevenlabs import generate, set_api_key  # Legacy-compatible
 
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
-eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY)
+set_api_key(ELEVEN_API_KEY)  # Legacy-style init
 
 # CONFIG
 VOICES = {
@@ -101,7 +101,7 @@ def narrate_story(text, voice_id, retries=3):
         try:
             with open(path, "wb") as f:
                 for part in chunks:
-                    stream = eleven_client.generate(
+                    stream = generate(
                         text=part,
                         voice=voice_id,
                         model="eleven_monolingual_v1",
