@@ -1,6 +1,8 @@
-streamlit>=1.32.0
+streamlit
 requests
-docx
+python-docx
 fpdf
+elevenlabs
 pyttsx3
-elevenlabs==1.0.11
+pydub
+Pillow
