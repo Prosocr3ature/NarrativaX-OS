@@ -1,17 +1,16 @@
-# streamlit_app.py
-
 import os
 import streamlit as st
 import requests
+from openai import OpenAI
 from elevenlabs.client import ElevenLabs
 
-# Load API keys from environment
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# API keys
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY)
 
-# Voices available
+# Voices
 VOICES = {
     "Rachel": "EXAVITQu4vr4xnSDxMaL",
     "Bella": "29vD33N1CtxCmqQRPOHJ",
@@ -20,10 +19,10 @@ VOICES = {
     "Josh": "TxGEqnHWrfWFTfGW9XjX"
 }
 
-# Generate story with Mistral (OpenRouter)
+# Generate story with Mistral via OpenRouter (custom headers)
 def generate_story(prompt):
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
         "HTTP-Referer": "https://yourapp.vercel.app",
         "X-Title": "NarrativaX",
         "Content-Type": "application/json"
@@ -38,22 +37,17 @@ def generate_story(prompt):
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-# Generate DALL·E image from OpenAI
+# Generate cover using OpenAI DALL·E
 def generate_cover(prompt):
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "prompt": prompt,
-        "n": 1,
-        "size": "1024x1024"
-    }
-    response = requests.post("https://api.openai.com/v1/images/generations", headers=headers, json=data)
-    response.raise_for_status()
-    return response.json()["data"][0]["url"]
+    response = openai_client.images.generate(
+        model="dall-e-3",
+        prompt=prompt,
+        size="1024x1024",
+        n=1
+    )
+    return response.data[0].url
 
-# Narrate story with ElevenLabs
+# Narrate story using ElevenLabs
 def narrate_story(text, voice_id):
     stream = eleven_client.text_to_speech.convert(
         voice_id=voice_id,
@@ -67,8 +61,8 @@ def narrate_story(text, voice_id):
             f.write(chunk)
     return path
 
-# Streamlit UI
-st.set_page_config(page_title="NarrativaX AI Story Generator", layout="centered")
+# UI
+st.set_page_config(page_title="NarrativaX", layout="centered")
 st.title("NarrativaX AI Story Generator")
 
 prompt = st.text_area("Describe your story idea:", height=200)
@@ -87,22 +81,22 @@ if st.button("Generate Story"):
 
 if st.button("Generate Cover Image"):
     if "story" in st.session_state:
-        with st.spinner("Generating cover with DALL·E..."):
+        with st.spinner("Generating DALL·E image..."):
             try:
                 image_url = generate_cover(st.session_state.story[:300])
                 st.image(image_url, caption="AI-Generated Cover", use_column_width=True)
             except Exception as e:
                 st.error(f"Cover generation failed: {e}")
     else:
-        st.warning("Generate a story first.")
+        st.warning("Please generate a story first.")
 
 if st.button("Narrate Story"):
     if "story" in st.session_state:
-        with st.spinner("Narrating..."):
+        with st.spinner("Narrating your story..."):
             try:
                 audio_path = narrate_story(st.session_state.story, voice_id)
                 st.audio(audio_path)
             except Exception as e:
                 st.error(f"Narration failed: {e}")
     else:
-        st.warning("Generate a story first.")
+        st.warning("Please generate a story first.")
