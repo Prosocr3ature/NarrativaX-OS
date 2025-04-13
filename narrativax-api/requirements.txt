@@ -1,5 +1,5 @@
-openai>=1.2.0
-streamlit
-requests
+streamlit>=1.31.0
+openai>=1.0.0
 Pillow
-elevenlabs==0.2.27
+requests
+elevenlabs
