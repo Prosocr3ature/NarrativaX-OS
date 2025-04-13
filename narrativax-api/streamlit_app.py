@@ -61,8 +61,8 @@ def generate_outline(prompt, genre, tone, chapters, model):
         model)
 
 def generate_section(title, outline, model):
-    return call_openrouter(f"Write the section '{title}' in full based on this outline:
-{outline}", model)
+    return call_openrouter(f"""Write the section '{title}' in full based on this outline:
+{outline}""", model)
 
 def generate_full_book(outline, chapters, model):
     book = {}
@@ -173,8 +173,7 @@ if "book" in st.session_state:
                 st.audio(audio)
             if st.button(f"Continue Writing: {title}", key=f"cont_{title}"):
                 addition = call_openrouter(f"Expand and continue this: {content}", model)
-                st.session_state.book[title] += "
-" + addition
+                st.session_state.book[title] += "\n\n" + addition
                 st.markdown(addition)
             if st.button(f"Generate Illustration for {title}", key=f"img_{title}"):
                 img_url = generate_image(content[:300])
@@ -203,9 +202,7 @@ if "book" in st.session_state:
         st.session_state.characters = chars
     if "characters" in st.session_state:
         if st.button("Visualize Characters"):
-            for i, desc in enumerate(st.session_state.characters.split("
-
-")[:3]):
+            for i, desc in enumerate(st.session_state.characters.split("\n\n")[:3]):
                 try:
                     url = generate_image(desc)
                     st.image(url, caption=f"Character {i+1}", use_container_width=True)
