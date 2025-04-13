@@ -6,15 +6,14 @@ from tempfile import NamedTemporaryFile
 from elevenlabs import generate, set_api_key
 import replicate
 
-# --- KEYS ---
+# KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-HF_API_TOKEN = os.getenv("HF_API_TOKEN")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 set_api_key(ELEVEN_API_KEY)
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-# --- CONFIG ---
+# CONFIG
 VOICES = {
     "Rachel": "EXAVITQu4vr4xnSDxMaL",
     "Bella": "29vD33N1CtxCmqQRPOHJ",
@@ -37,9 +36,6 @@ MODELS = [
     "cognitivecomputations/dolphin-mixtral"
 ]
 
-IMAGE_ENGINES = ["Replicate", "Hugging Face"]
-
-# --- AI ---
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -63,7 +59,8 @@ def generate_outline(prompt, genre, tone, chapters, model):
         model)
 
 def generate_section(title, outline, model):
-    return call_openrouter(f"Write the section '{title}' in full based on this outline:\n{outline}", model)
+    return call_openrouter(f"""Write the section '{title}' in full based on this outline:
+{outline}""", model)
 
 def generate_full_book(outline, chapters, model):
     book = {}
@@ -79,45 +76,27 @@ def generate_characters(prompt, genre, tone, model):
         f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.",
         model)
 
-# --- IMAGE ---
 def generate_image(prompt):
-    engine = st.session_state.get("img_engine", "Replicate")
-    if engine == "Hugging Face":
-        headers = {
-            "Authorization": f"Bearer {HF_API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        payload = {"inputs": prompt}
-        with st.spinner("Generating image via Hugging Face..."):
-            r = requests.post(
-                "https://api-inference.huggingface.co/models/stablediffusionapi/revanimatedv122",
-                headers=headers, json=payload
+    with st.spinner("Generating image via Replicate..."):
+        try:
+            output = replicate_client.run(
+                "pagebrain/rev-animated-v1-2-2:fbcec9cb1ca7f187438ea8bbcb3b34a40f396d8eece945c4f70166be1d204928",
+                input={
+                    "seed": 2937362614,
+                    "width": 576,
+                    "height": 1024,
+                    "prompt": f"((best quality)), ((masterpiece)), {prompt}",
+                    "scheduler": "KarrasDPM",
+                    "guidance_scale": 8.5,
+                    "safety_checker": False,
+                    "negative_prompt": "realisticvision-negative-embedding",
+                    "num_inference_steps": 30
+                }
             )
-            if r.ok:
-                tmp = NamedTemporaryFile(delete=False, suffix=".png")
-                with open(tmp.name, "wb") as f:
-                    f.write(r.content)
-                return tmp.name
-            else:
-                st.error(f"Hugging Face Error {r.status_code}: {r.text}")
-                return None
-    else:
-        with st.spinner("Generating image via Replicate..."):
-            try:
-                output = replicate_client.run(
-                    "92john/revanimated-v122",
-                    input={
-                        "prompt": prompt,
-                        "num_inference_steps": 30,
-                        "guidance_scale": 7.5,
-                        "width": 768,
-                        "height": 1024
-                    }
-                )
-                return output[0]
-            except Exception as e:
-                st.error(f"Replicate Error: {str(e)}")
-                return None
+            return output[0]
+        except Exception as e:
+            st.error(f"Image generation failed: {str(e)}")
+            return None
 
 def generate_cover(prompt):
     return generate_image(prompt + ", full book cover, illustration")
@@ -187,7 +166,6 @@ def load_session_json():
 st.set_page_config(page_title="NarrativaX Studio", layout="wide")
 st.title("NarrativaX — AI Book Creation Studio")
 
-# Session Controls
 col3, col4 = st.columns(2)
 with col3:
     if st.button("Save Session to File"):
@@ -198,7 +176,6 @@ with col4:
     if st.button("Load Session from File"):
         load_session_json()
 
-# User Inputs
 prompt = st.text_area("Book Idea:", height=200)
 genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"])
 tone = st.selectbox("Tone", list(TONE_MAP.keys()))
@@ -206,10 +183,7 @@ chapter_count = st.slider("Chapters", 6, 20, 8)
 model = st.selectbox("Choose LLM", MODELS)
 voice = st.selectbox("Voice", list(VOICES.keys()))
 voice_id = VOICES[voice]
-img_engine = st.selectbox("Image Engine", IMAGE_ENGINES)
-st.session_state.img_engine = img_engine
 
-# Create Book
 if st.button("Create Full Book"):
     with st.spinner("Generating outline and chapters..."):
         outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
@@ -217,7 +191,6 @@ if st.button("Create Full Book"):
         book = generate_full_book(outline, chapter_count, model)
         st.session_state.book = book
 
-# Book Interaction
 if "book" in st.session_state:
     st.subheader("Read, Expand or Narrate")
     for title, content in st.session_state.book.items():
