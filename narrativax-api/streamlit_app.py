@@ -1,12 +1,9 @@
-# streamlit_app.py — NarrativaX Final Enhanced Version
-# Features: Book Builder, SDXL Covers + Chapter Art, TTS Retry, Continue Writing, Export, Model Selector
-
 import os, time, textwrap, requests, pyttsx3
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
-from elevenlabs.client import ElevenLabs  # FIXED import
+from elevenlabs import ElevenLabs  # Updated import
 
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
