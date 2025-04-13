@@ -5,13 +5,13 @@ import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
-from elevenlabs import ElevenLabs
+from elevenlabs import generate
 
 # API KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
-eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY)
+
 
 # VOICES
 VOICES = {
@@ -123,10 +123,10 @@ def narrate_story(text, voice_id, retries=3):
         try:
             with open(path, "wb") as f:
                 for part in chunks:
-                    stream = eleven_client.text_to_speech.convert(
-                        voice_id=voice_id,
-                        model_id="eleven_monolingual_v1",
+                    stream = generate(
                         text=part,
+                        voice=voice_id
+                        model="eleven_monolingual_v1",
                         stream=True
                     )
                     for chunk in stream:
