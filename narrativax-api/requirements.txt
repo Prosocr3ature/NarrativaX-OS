@@ -7,3 +7,4 @@ elevenlabs==0.2.27
 pandas==2.2.3
 jinja2==3.1.6
 watchdog==6.0.0
+replicate==0.24.0
