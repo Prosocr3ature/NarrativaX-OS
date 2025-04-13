@@ -1,8 +1,7 @@
-streamlit
+streamlit==1.44.1
+elevenlabs==1.56.0
 requests
-python-docx
+docx
 fpdf
-elevenlabs
 pyttsx3
-pydub
-Pillow
+pillow
