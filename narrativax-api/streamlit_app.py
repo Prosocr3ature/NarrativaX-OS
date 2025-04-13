@@ -6,7 +6,7 @@ from tempfile import NamedTemporaryFile
 from elevenlabs import generate, set_api_key
 import replicate
 
-# KEYS
+# --- KEYS ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
@@ -14,7 +14,7 @@ ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 set_api_key(ELEVEN_API_KEY)
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-# CONFIG
+# --- CONFIG ---
 VOICES = {
     "Rachel": "EXAVITQu4vr4xnSDxMaL",
     "Bella": "29vD33N1CtxCmqQRPOHJ",
@@ -39,7 +39,7 @@ MODELS = [
 
 IMAGE_ENGINES = ["Replicate", "Hugging Face"]
 
-# --- AI UTILS ---
+# --- AI ---
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -63,7 +63,7 @@ def generate_outline(prompt, genre, tone, chapters, model):
         model)
 
 def generate_section(title, outline, model):
-    return call_openrouter(f"""Write the section '{title}' in full based on this outline:\n{outline}""", model)
+    return call_openrouter(f"Write the section '{title}' in full based on this outline:\n{outline}", model)
 
 def generate_full_book(outline, chapters, model):
     book = {}
@@ -79,9 +79,10 @@ def generate_characters(prompt, genre, tone, model):
         f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.",
         model)
 
-# --- IMAGE GENERATION ---
+# --- IMAGE ---
 def generate_image(prompt):
-    if st.session_state.get("img_engine") == "Hugging Face":
+    engine = st.session_state.get("img_engine", "Replicate")
+    if engine == "Hugging Face":
         headers = {
             "Authorization": f"Bearer {HF_API_TOKEN}",
             "Content-Type": "application/json"
@@ -93,10 +94,9 @@ def generate_image(prompt):
                 headers=headers, json=payload
             )
             if r.ok:
-                img_data = r.content
                 tmp = NamedTemporaryFile(delete=False, suffix=".png")
                 with open(tmp.name, "wb") as f:
-                    f.write(img_data)
+                    f.write(r.content)
                 return tmp.name
             else:
                 st.error(f"Hugging Face Error {r.status_code}: {r.text}")
@@ -132,12 +132,7 @@ def narrate_story(text, voice_id, retries=3):
         try:
             with open(path, "wb") as f:
                 for part in chunks:
-                    stream = generate(
-                        text=part,
-                        voice=voice_id,
-                        model="eleven_monolingual_v1",
-                        stream=True
-                    )
+                    stream = generate(text=part, voice=voice_id, model="eleven_monolingual_v1", stream=True)
                     for chunk in stream:
                         f.write(chunk)
             return path
@@ -192,6 +187,7 @@ def load_session_json():
 st.set_page_config(page_title="NarrativaX Studio", layout="wide")
 st.title("NarrativaX — AI Book Creation Studio")
 
+# Session Controls
 col3, col4 = st.columns(2)
 with col3:
     if st.button("Save Session to File"):
@@ -202,6 +198,7 @@ with col4:
     if st.button("Load Session from File"):
         load_session_json()
 
+# User Inputs
 prompt = st.text_area("Book Idea:", height=200)
 genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"])
 tone = st.selectbox("Tone", list(TONE_MAP.keys()))
@@ -212,6 +209,7 @@ voice_id = VOICES[voice]
 img_engine = st.selectbox("Image Engine", IMAGE_ENGINES)
 st.session_state.img_engine = img_engine
 
+# Create Book
 if st.button("Create Full Book"):
     with st.spinner("Generating outline and chapters..."):
         outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
@@ -219,6 +217,7 @@ if st.button("Create Full Book"):
         book = generate_full_book(outline, chapter_count, model)
         st.session_state.book = book
 
+# Book Interaction
 if "book" in st.session_state:
     st.subheader("Read, Expand or Narrate")
     for title, content in st.session_state.book.items():
