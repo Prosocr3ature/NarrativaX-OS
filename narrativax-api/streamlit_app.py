@@ -1,53 +1,52 @@
-# narrativax-api/streamlit_app.py
-
 import os
 import streamlit as st
 import openai
 import requests
 from io import BytesIO
 from PIL import Image
-from elevenlabs import Voice, VoiceSettings, set_api_key, generate, play
+from elevenlabs.client import ElevenLabs
 
-# Set your API keys from environment
+# Set API keys
 openai.api_key = os.getenv("OPENAI_API_KEY")
-set_api_key(os.getenv("ELEVEN_API_KEY"))
+eleven_client = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 
-# ElevenLabs available voices
+# Voices
 VOICES = ["Rachel", "Bella", "Antoni", "Elli", "Josh"]
 
-# Generate story using Chat Completions
+# Generate story
 def generate_story(prompt):
-    client = openai.OpenAI()
-    response = client.chat.completions.create(
+    response = openai.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.85,
         max_tokens=700
     )
-    return response.choices[0].message.content
+    return response.choices[0].message.content.strip()
 
-# Generate a DALL·E image
+# Generate cover image
 def generate_cover_image(prompt):
-    response = openai.Image.create(
+    response = openai.images.generate(
+        model="dall-e-3",
         prompt=prompt,
-        n=1,
-        size="512x512"
+        size="1024x1024",
+        quality="standard",
+        n=1
     )
-    return response["data"][0]["url"]
+    return response.data[0].url
 
-# Narrate story using ElevenLabs
+# Narrate with ElevenLabs
 def narrate_story(story_text, voice):
-    audio = generate(
-        text=story_text,
+    audio = eleven_client.text_to_speech.convert(
         voice=voice,
-        model="eleven_monolingual_v1"
+        model="eleven_monolingual_v1",
+        text=story_text
     )
-    output_path = f"narration_{voice}.mp3"
-    with open(output_path, "wb") as f:
+    path = f"narration_{voice}.mp3"
+    with open(path, "wb") as f:
         f.write(audio)
-    return output_path
+    return path
 
-# Streamlit UI setup
+# Streamlit UI
 st.set_page_config(page_title="NarrativaX AI Story Generator", layout="centered")
 st.title("NarrativaX AI Story Generator")
 
@@ -68,7 +67,7 @@ if st.button("Generate Cover Image"):
     if "story_text" in st.session_state:
         with st.spinner("Creating cover with DALL·E..."):
             try:
-                img_url = generate_cover_image(st.session_state.story_text[:150])
+                img_url = generate_cover_image(st.session_state.story_text[:300])
                 st.image(img_url, caption="AI-Generated Cover", use_column_width=True)
             except Exception as e:
                 st.error(f"Cover generation failed: {e}")
