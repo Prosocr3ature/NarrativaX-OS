@@ -75,21 +75,45 @@ def generate_characters(prompt, genre, tone, model):
         model)
 
 def generate_image(prompt):
-    headers = {"Authorization": f"Token {REPLICATE_API_TOKEN}", "Content-Type": "application/json"}
-    data = {
-        "version": "db21e45e14aa502f98f4df6736d3f6e18f87827d7c642a14970df61aeb06d519",
-        "input": {"prompt": prompt, "width": 768, "height": 1024}
+    headers = {
+        "Authorization": f"Token {REPLICATE_API_TOKEN}",
+        "Content-Type": "application/json"
     }
-    r = requests.post("https://api.replicate.com/v1/predictions", headers=headers, json=data)
-    r.raise_for_status()
-    poll_url = r.json()["urls"]["get"]
-    while True:
-        check = requests.get(poll_url, headers=headers).json()
-        if check["status"] == "succeeded":
-            return check["output"][0]
-        elif check["status"] == "failed":
-            raise RuntimeError("Image generation failed.")
-        time.sleep(1)
+    data = {
+        "version": "a9758cb3b055d4e8b0718da739e74e5e93b6443702677c60a9b5c44c5767c67c",
+        "input": {
+            "prompt": prompt,
+            "num_inference_steps": 30,
+            "guidance_scale": 7.5,
+            "width": 768,
+            "height": 1024
+        }
+    }
+
+    with st.spinner("Generating illustration..."):
+        r = requests.post("https://api.replicate.com/v1/predictions", headers=headers, json=data)
+
+        if not r.ok:
+            st.error(f"Image generation failed: {r.status_code} {r.reason}")
+            st.text(r.text)
+            r.raise_for_status()
+
+        poll_url = r.json()["urls"]["get"]
+        status = st.empty()
+
+        while True:
+            check = requests.get(poll_url, headers=headers).json()
+            current_status = check.get("status", "")
+            status.info(f"Image generation status: {current_status}")
+
+            if current_status == "succeeded":
+                status.empty()
+                st.success("Image generated successfully.")
+                return check["output"][0]
+            elif current_status == "failed":
+                status.error("Image generation failed.")
+                raise RuntimeError("Image generation failed.")
+            time.sleep(1)
 
 def generate_cover(prompt):
     return generate_image(prompt + ", full book cover, illustration")
@@ -148,7 +172,6 @@ def export_pdf(data):
     pdf.output(f.name)
     return f.name
 
-# Session management
 def save_session_json():
     if "book" in st.session_state:
         with open("session.json", "w") as f:
