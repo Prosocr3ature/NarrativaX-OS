@@ -1,5 +1,4 @@
-# streamlit_app.py — NarrativaX Final Version
-# Includes: full book builder, chapter playback, character AI, SDXL covers
+# streamlit_app.py — NarrativaX Final Version (Dynamic+Memory Enhanced)
 
 import os
 import streamlit as st
@@ -68,6 +67,18 @@ def generate_full_book(outline, chapters):
         prompt = f"""Write the section '{sec}' in full based on this outline:\n{outline}\nMake it intelligent, immersive, and genre consistent."""
         book_data[sec] = call_openrouter(prompt)
     return book_data
+
+# --- DYNAMIC EXPANSION ---
+def add_new_chapter(outline, current):
+    next_num = len([k for k in current if k.startswith("Chapter")]) + 1
+    prompt = f"Add Chapter {next_num} to this story. Based on:\n{outline}\n\nWrite Chapter {next_num} in full."
+    section = f"Chapter {next_num}"
+    content = call_openrouter(prompt)
+    return section, content
+
+def regenerate_chapter(title, outline):
+    prompt = f"Regenerate and improve '{title}' based on the outline:\n{outline}\nMake it deeper, consistent and vivid."
+    return call_openrouter(prompt)
 
 # --- CHARACTERS ---
 def generate_characters(prompt, genre, tone):
@@ -180,6 +191,18 @@ if "book" in st.session_state:
             if st.button(f"Narrate {k}", key=k):
                 path = narrate_story(v, voice_id)
                 st.audio(path)
+
+    st.subheader("Expand Book")
+    if st.button("Add Chapter"):
+        new_title, new_text = add_new_chapter(st.session_state.outline, st.session_state.book)
+        st.session_state.book[new_title] = new_text
+        st.success(f"{new_title} added.")
+
+    st.subheader("Refine Chapter")
+    selected = st.selectbox("Select chapter", list(st.session_state.book.keys()))
+    if st.button("Regenerate Selected Chapter"):
+        st.session_state.book[selected] = regenerate_chapter(selected, st.session_state.outline)
+        st.success(f"{selected} updated.")
 
     st.subheader("Export Book")
     if st.button("Download DOCX"):
