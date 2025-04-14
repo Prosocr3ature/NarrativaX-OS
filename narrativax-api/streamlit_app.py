@@ -25,6 +25,10 @@ MODELS = [
     "nousresearch/nous-capybara-7b",
     "cognitivecomputations/dolphin-mixtral"
 ]
+IMAGE_MODELS = {
+    "Reliberate V3 (Erotica/NSFW)": "asiryan/reliberate-v3:d70438fcb9bb7adb8d6e59cf236f754be0b77625e984b8595d1af02cdf034b29",
+    "Stable Diffusion (General Purpose)": "stability-ai/stable-diffusion:ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4"
+}
 
 # STATE
 if "last_saved" not in st.session_state:
@@ -69,26 +73,27 @@ def generate_characters(prompt, genre, tone, model):
         f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.",
         model)
 
-def generate_image(prompt):
+def generate_image(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
     with st.spinner("Generating image..."):
         try:
-            output = replicate_client.run(
-                "asiryan/reliberate-v3:d70438fcb9bb7adb8d6e59cf236f754be0b77625e984b8595d1af02cdf034b29",
-                input={
-                    "prompt": prompt,
-                    "num_inference_steps": 30,
-                    "guidance_scale": 7.5,
-                    "width": 768,
-                    "height": 1024
-                }
-            )
+            model = IMAGE_MODELS[model_key]
+            input_args = {
+                "prompt": prompt,
+                "num_inference_steps": 30,
+                "guidance_scale": 7.5,
+                "width": 768,
+                "height": 1024
+            }
+            if "stable-diffusion" in model:
+                input_args["scheduler"] = "K_EULER"
+            output = replicate_client.run(model, input=input_args)
             return output[0]
         except Exception as e:
             st.error(f"Image generation failed: {str(e)}")
             return None
 
-def generate_cover(prompt):
-    return generate_image(prompt + ", full book cover, illustration")
+def generate_cover(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
+    return generate_image(prompt, model_key=model_key)
 
 def narrate_story(text, voice_id=None):
     try:
@@ -140,7 +145,6 @@ def load_session_json():
 st.set_page_config(page_title="NarrativaX Studio", layout="wide")
 st.title("NarrativaX — AI Book Creation Studio")
 
-# Sidebar: Auto Save + Branding
 with st.sidebar:
     st.image("https://i.imgur.com/vGV9N5k.png", width=200)
     st.markdown("**NarrativaX v2**")
@@ -148,18 +152,19 @@ with st.sidebar:
         st.info(f"Last saved {int(time.time() - st.session_state.last_saved)}s ago")
     st.button("Save Now", on_click=save_session_json)
 
-# Book Controls
 with st.expander("AI Story Settings", expanded=True):
-    prompt = st.text_area("Book Idea", height=150, help="What should the book be about?")
-    genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"], help="Choose your story's genre.")
-    tone = st.selectbox("Tone", list(TONE_MAP.keys()), help="Adjust the literary tone of the story.")
+    prompt = st.text_area("Book Idea", height=150)
+    genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"])
+    tone = st.selectbox("Tone", list(TONE_MAP.keys()))
     chapter_count = st.slider("Chapters", 6, 20, 8)
-    model = st.selectbox("Choose LLM", MODELS, help="Pick which AI model to write your story.")
+    model = st.selectbox("Choose LLM", MODELS)
+
+voice = st.selectbox("Voice", list(VOICES.keys()))
+img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
 
 tabs = st.tabs(["Generate Book", "Narration Tools", "Illustrations", "Export", "Characters", "Feedback"])
 
 with tabs[0]:
-    voice = st.selectbox("Voice", list(VOICES.keys()))
     if st.button("Create Full Book"):
         with st.spinner("Generating outline and chapters..."):
             outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
@@ -170,7 +175,7 @@ with tabs[0]:
     if "book" in st.session_state:
         st.markdown("### Book Preview")
         for title, content in st.session_state.book.items():
-            with st.expander(title, expanded=False):
+            with st.expander(title):
                 st.markdown(content)
 
 with tabs[1]:
@@ -188,20 +193,18 @@ with tabs[1]:
                     st.markdown(addition)
 
 with tabs[2]:
-    st.subheader("Generate Illustrations")
     if "book" in st.session_state:
         for title, content in st.session_state.book.items():
             if st.button(f"Generate Illustration for {title}", key=f"img_{title}"):
-                img_url = generate_image(content[:300])
+                img_url = generate_image(content[:300], model_key=img_model)
                 if img_url:
                     st.image(img_url, caption=f"{title} Illustration", use_container_width=True)
         if st.button("Generate Book Cover"):
-            cover = generate_cover(prompt)
+            cover = generate_cover(prompt + ", full book cover, illustration", model_key=img_model)
             if cover:
                 st.image(cover, caption="Book Cover", use_container_width=True)
 
 with tabs[3]:
-    st.subheader("Export Your Book")
     if "book" in st.session_state:
         col1, col2 = st.columns(2)
         with col1:
@@ -214,7 +217,6 @@ with tabs[3]:
                 st.download_button("Download PDF", open(path, "rb"), file_name="book.pdf")
 
 with tabs[4]:
-    st.subheader("Character Generator")
     if st.button("Generate Characters"):
         chars = generate_characters(prompt, genre, TONE_MAP[tone], model)
         st.text_area("Characters", chars, height=200)
@@ -223,14 +225,13 @@ with tabs[4]:
         if st.button("Visualize Characters"):
             for i, desc in enumerate(st.session_state.characters.split("\n\n")[:3]):
                 try:
-                    url = generate_image(desc)
+                    url = generate_image(desc, model_key=img_model)
                     if url:
                         st.image(url, caption=f"Character {i+1}", use_container_width=True)
                 except:
                     st.warning(f"Image generation failed: Character {i+1}")
 
 with tabs[5]:
-    st.subheader("Feedback")
     with st.form("feedback_form"):
         feedback = st.text_area("Tell us what you'd like to improve or report")
         submitted = st.form_submit_button("Submit")
