@@ -1,27 +1,23 @@
-import os, time, textwrap, requests, json
+import os, time, textwrap, requests, pyttsx3, json
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
+from gtts import gTTS
 import replicate
-from TTS.api import TTS  # Coqui TTS
 
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-# Load Coqui TTS once
-if "tts" not in st.session_state:
-    st.session_state.tts = TTS(model_name="tts_models/en/vctk/vits")
-
 # CONFIG
-VOICES = ["Coqui Female"]
 TONE_MAP = {
     "Romantic": "sensual, romantic, literary",
     "NSFW": "detailed erotic, emotional, mature",
     "Hardcore": "intense, vulgar, graphic, pornographic"
 }
+
 MODELS = [
     "nothingiisreal/mn-celeste-12b",
     "openchat/openchat-3.5-0106",
@@ -95,17 +91,16 @@ def generate_cover(prompt):
 def chunk_text(text, max_tokens=400):
     return textwrap.wrap(text, max_tokens, break_long_words=False)
 
-# --- Coqui Narration ---
 def narrate_story(text, retries=3):
     try:
-        path = "narration.wav"
-        st.session_state.tts.tts_to_file(text=text, file_path=path)
+        tts = gTTS(text, lang='en', tld='co.uk')
+        path = "narration.mp3"
+        tts.save(path)
         return path
     except Exception as e:
-        st.error(f"Coqui TTS failed: {e}")
+        st.error(f"TTS failed: {e}")
         return None
 
-# --- Export ---
 def export_docx(data):
     doc = Document()
     for k, v in data.items():
@@ -160,8 +155,6 @@ genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "
 tone = st.selectbox("Tone", list(TONE_MAP.keys()))
 chapter_count = st.slider("Chapters", 6, 20, 8)
 model = st.selectbox("Choose LLM", MODELS)
-voice = st.selectbox("Voice", VOICES)  # Simplified
-voice_id = voice  # No longer needed for ElevenLabs
 
 if st.button("Create Full Book"):
     with st.spinner("Generating outline and chapters..."):
@@ -177,8 +170,7 @@ if "book" in st.session_state:
             st.markdown(content)
             if st.button(f"Narrate {title}", key=f"narrate_{title}"):
                 audio = narrate_story(content)
-                if audio:
-                    st.audio(audio)
+                st.audio(audio)
             if st.button(f"Continue Writing: {title}", key=f"cont_{title}"):
                 addition = call_openrouter(f"Expand and continue this: {content}", model)
                 st.session_state.book[title] += "\n\n" + addition
