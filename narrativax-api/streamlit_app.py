@@ -12,6 +12,14 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
 # CONFIG
+VOICES = {
+    "Rachel": "default",
+    "Bella": "default",
+    "Antoni": "default",
+    "Elli": "default",
+    "Josh": "default"
+}
+
 TONE_MAP = {
     "Romantic": "sensual, romantic, literary",
     "NSFW": "detailed erotic, emotional, mature",
@@ -91,12 +99,12 @@ def generate_cover(prompt):
 def chunk_text(text, max_tokens=400):
     return textwrap.wrap(text, max_tokens, break_long_words=False)
 
-def narrate_story(text, retries=3):
+def narrate_story(text, voice_id=None, retries=3):
     try:
-        tts = gTTS(text, lang='en', tld='co.uk')
-        path = "narration.mp3"
-        tts.save(path)
-        return path
+        tts = gTTS(text)
+        filename = f"narration_{voice_id or 'default'}.mp3"
+        tts.save(filename)
+        return filename
     except Exception as e:
         st.error(f"TTS failed: {e}")
         return None
@@ -155,6 +163,8 @@ genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "
 tone = st.selectbox("Tone", list(TONE_MAP.keys()))
 chapter_count = st.slider("Chapters", 6, 20, 8)
 model = st.selectbox("Choose LLM", MODELS)
+voice = st.selectbox("Voice", list(VOICES.keys()))
+voice_id = VOICES[voice]
 
 if st.button("Create Full Book"):
     with st.spinner("Generating outline and chapters..."):
@@ -169,7 +179,7 @@ if "book" in st.session_state:
         with st.expander(title, expanded=True):
             st.markdown(content)
             if st.button(f"Narrate {title}", key=f"narrate_{title}"):
-                audio = narrate_story(content)
+                audio = narrate_story(content, voice_id)
                 st.audio(audio)
             if st.button(f"Continue Writing: {title}", key=f"cont_{title}"):
                 addition = call_openrouter(f"Expand and continue this: {content}", model)
