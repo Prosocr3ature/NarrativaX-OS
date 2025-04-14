@@ -12,21 +12,12 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
 # CONFIG
-VOICES = {
-    "Rachel": "default",
-    "Bella": "default",
-    "Antoni": "default",
-    "Elli": "default",
-    "Josh": "default"
-}
-
+VOICES = {"Rachel": "default", "Bella": "default", "Antoni": "default", "Elli": "default", "Josh": "default"}
 TONE_MAP = {
     "Romantic": "sensual, romantic, literary",
     "NSFW": "detailed erotic, emotional, mature",
     "Hardcore": "intense, vulgar, graphic, pornographic"
 }
-
-GENRE_OPTIONS = ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"]
 MODELS = [
     "nothingiisreal/mn-celeste-12b",
     "openchat/openchat-3.5-0106",
@@ -35,7 +26,7 @@ MODELS = [
     "cognitivecomputations/dolphin-mixtral"
 ]
 
-# UTILS
+# --- AI UTILS ---
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -53,15 +44,13 @@ def call_openrouter(prompt, model, max_tokens=1800):
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
-def clean_output(text):
-    return text.replace("**", "").replace("#", "").strip()
-
 def generate_outline(prompt, genre, tone, chapters, model):
-    prompt = f"Create a structured outline for a {tone} {genre} novel with {chapters} chapters. Include title, foreword, introduction, numbered chapters with titles, and final words. Theme: {prompt}"
-    return clean_output(call_openrouter(prompt, model))
+    return call_openrouter(
+        f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}",
+        model)
 
 def generate_section(title, outline, model):
-    return clean_output(call_openrouter(f"Write the full '{title}' based on the following outline:\n{outline}", model))
+    return call_openrouter(f"""Write the section '{title}' in full based on this outline:\n{outline}""", model)
 
 def generate_full_book(outline, chapters, model):
     book = {}
@@ -73,12 +62,13 @@ def generate_full_book(outline, chapters, model):
     return book
 
 def generate_characters(prompt, genre, tone, model):
-    return clean_output(call_openrouter(
-        f"Generate 3 distinct characters for a {tone} {genre} story based on this idea: {prompt}. Format each as Name, Role, Appearance, Personality, Motivation, Secret.",
-        model))
+    return call_openrouter(
+        f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.",
+        model)
 
+# --- IMAGE GENERATION ---
 def generate_image(prompt):
-    with st.spinner("Creating image..."):
+    with st.spinner("Generating image..."):
         try:
             output = replicate_client.run(
                 "asiryan/reliberate-v3:d70438fcb9bb7adb8d6e59cf236f754be0b77625e984b8595d1af02cdf034b29",
@@ -92,11 +82,14 @@ def generate_image(prompt):
             )
             return output[0]
         except Exception as e:
-            st.error(f"Image generation failed: {e}")
+            st.error(f"Image generation failed: {str(e)}")
             return None
 
 def generate_cover(prompt):
     return generate_image(prompt + ", full book cover, illustration")
+
+def chunk_text(text, max_tokens=400):
+    return textwrap.wrap(text, max_tokens, break_long_words=False)
 
 def narrate_story(text, voice_id=None):
     try:
@@ -108,6 +101,7 @@ def narrate_story(text, voice_id=None):
         st.error(f"TTS failed: {e}")
         return None
 
+# --- EXPORT ---
 def export_docx(data):
     doc = Document()
     for k, v in data.items():
@@ -131,6 +125,7 @@ def export_pdf(data):
     pdf.output(f.name)
     return f.name
 
+# --- SESSION ---
 def save_session_json():
     if "book" in st.session_state:
         with open("session.json", "w") as f:
@@ -143,62 +138,51 @@ def load_session_json():
     except Exception as e:
         st.warning(f"Could not load session: {e}")
 
-def feedback_loop(book, model):
-    feedback_prompt = "Check the following book for structural inconsistencies, tone mismatches, or character deviations. Fix any errors and maintain continuity."
-    for section, text in book.items():
-        corrected = clean_output(call_openrouter(f"{feedback_prompt}\n\nSection: {section}\n\n{text}", model))
-        book[section] = corrected
-    return book
-
-# UI
+# --- UI ---
 st.set_page_config(page_title="NarrativaX Studio", layout="wide")
 st.title("NarrativaX — AI Book Creation Studio")
 
-st.markdown("**Save/Load Session**")
 col3, col4 = st.columns(2)
 with col3:
-    if st.button("Save Session"):
+    if st.button("Save Session to File"):
         save_session_json()
-        st.success("Saved.")
-    st.download_button("Download JSON", json.dumps(st.session_state.get("book", {})), file_name="session.json")
+        st.success("Session saved.")
+    st.download_button("Download Session JSON", json.dumps(st.session_state.get("book", {})), file_name="session.json")
 with col4:
-    if st.button("Load Session"):
+    if st.button("Load Session from File"):
         load_session_json()
 
-prompt = st.text_area("Book Idea", height=200)
-genre = st.selectbox("Genre", GENRE_OPTIONS)
+prompt = st.text_area("Book Idea:", height=200)
+genre = st.selectbox("Genre", ["Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller"])
 tone = st.selectbox("Tone", list(TONE_MAP.keys()))
 chapter_count = st.slider("Chapters", 6, 20, 8)
-model = st.selectbox("Choose Model", MODELS)
+model = st.selectbox("Choose LLM", MODELS)
 voice = st.selectbox("Voice", list(VOICES.keys()))
 voice_id = VOICES[voice]
-nsfw = st.checkbox("Enable Adult/Explicit Content Mode", value=(tone in ["NSFW", "Hardcore"]))
 
-if st.button("Generate Full Book"):
-    with st.spinner("Creating outline and writing chapters..."):
+if st.button("Create Full Book"):
+    with st.spinner("Generating outline and chapters..."):
         outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
         st.session_state.outline = outline
         book = generate_full_book(outline, chapter_count, model)
-        if nsfw:
-            book = feedback_loop(book, model)
         st.session_state.book = book
 
 if "book" in st.session_state:
     st.subheader("Read, Expand or Narrate")
     for title, content in st.session_state.book.items():
-        with st.expander(title, expanded=False):
+        with st.expander(title, expanded=True):
             st.markdown(content)
             if st.button(f"Narrate {title}", key=f"narrate_{title}"):
                 audio = narrate_story(content, voice_id)
                 st.audio(audio)
             if st.button(f"Continue Writing: {title}", key=f"cont_{title}"):
-                addition = clean_output(call_openrouter(f"Continue this section:\n\n{content}", model))
+                addition = call_openrouter(f"Expand and continue this: {content}", model)
                 st.session_state.book[title] += "\n\n" + addition
                 st.markdown(addition)
             if st.button(f"Generate Illustration for {title}", key=f"img_{title}"):
                 img_url = generate_image(content[:300])
                 if img_url:
-                    st.image(img_url, caption=f"{title} Illustration", use_container_width=True)
+                    st.image(img_url, caption=f"{title} Art", use_container_width=True)
 
     st.subheader("Export Book")
     col1, col2 = st.columns(2)
@@ -211,11 +195,11 @@ if "book" in st.session_state:
             path = export_pdf(st.session_state.book)
             st.download_button("Download PDF", open(path, "rb"), file_name="book.pdf")
 
-    st.subheader("Generate Cover Art")
+    st.subheader("Generate Book Cover")
     if st.button("Cover Illustration"):
         cover = generate_cover(prompt)
         if cover:
-            st.image(cover, caption="Book Cover", use_container_width=True)
+            st.image(cover, caption="Cover", use_container_width=True)
 
     st.subheader("Characters")
     if st.button("Generate Characters"):
@@ -225,6 +209,9 @@ if "book" in st.session_state:
     if "characters" in st.session_state:
         if st.button("Visualize Characters"):
             for i, desc in enumerate(st.session_state.characters.split("\n\n")[:3]):
-                url = generate_image(desc)
-                if url:
-                    st.image(url, caption=f"Character {i+1}", use_container_width=True)
+                try:
+                    url = generate_image(desc)
+                    if url:
+                        st.image(url, caption=f"Character {i+1}", use_container_width=True)
+                except:
+                    st.warning(f"Image generation failed: Character {i+1}")
