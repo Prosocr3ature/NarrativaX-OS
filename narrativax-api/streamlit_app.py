@@ -1,16 +1,18 @@
-import os, time, requests, json
+import os, time, requests, json, textwrap
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
 from gtts import gTTS
 import replicate
+from streamlit_sortables import sort_items
 
-# --- CONFIG & KEYS ---
+# KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
+# CONFIG
 VOICES = {"Rachel": "default", "Bella": "default", "Antoni": "default", "Elli": "default", "Josh": "default"}
 TONE_MAP = {
     "Romantic": "sensual, romantic, literary",
@@ -34,13 +36,15 @@ GENRES = [
     "Psychological", "Crime", "LGBTQ+", "Action", "Paranormal"
 ]
 
-# --- STATE ---
+# STATE
 if "last_saved" not in st.session_state:
     st.session_state.last_saved = None
 if "feedback_history" not in st.session_state:
     st.session_state.feedback_history = []
 if "characters" not in st.session_state:
     st.session_state.characters = []
+if "chapter_order" not in st.session_state:
+    st.session_state.chapter_order = []
 
 # --- AI Functions ---
 def call_openrouter(prompt, model, max_tokens=1800):
@@ -75,6 +79,7 @@ def generate_full_book(outline, chapters, model):
     for idx, sec in enumerate(sections):
         book[sec] = generate_section(sec, outline, model)
         progress.progress((idx + 1) / len(sections))
+    st.session_state.chapter_order = sections
     return book
 
 def generate_characters(prompt, genre, tone, model):
@@ -165,11 +170,9 @@ with st.sidebar:
         save_session_json()
     if st.button("Load Session"):
         load_session_json()
-
     if st.toggle("Dark Mode"):
         st.markdown("<style>body{background-color:#121212; color:white;}</style>", unsafe_allow_html=True)
 
-# --- Input Controls ---
 with st.expander("AI Story Settings", expanded=True):
     prompt = st.text_area("Book Idea", height=150)
     genre_type = st.radio("Genre Type", ["Normal", "Adult"], horizontal=True)
@@ -181,10 +184,10 @@ with st.expander("AI Story Settings", expanded=True):
     voice = st.selectbox("Voice", list(VOICES.keys()))
     img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
 
-# --- Tabs ---
-tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
+# Tabs
+with st.container():
+    tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
 
-# Book Tab
 with tabs[0]:
     if st.button("Create Full Book"):
         with st.spinner("Generating outline and chapters..."):
@@ -195,7 +198,11 @@ with tabs[0]:
 
     if "book" in st.session_state:
         st.markdown("### Book Preview")
-        for title, content in st.session_state.book.items():
+        if sort_items(label="Reorder Chapters", items=st.session_state.chapter_order):
+            st.session_state.book = {k: st.session_state.book[k] for k in st.session_state.chapter_order if k in st.session_state.book}
+            st.experimental_rerun()
+        for title in st.session_state.chapter_order:
+            content = st.session_state.book.get(title, "")
             with st.expander(f"✍️ {title}", expanded=False):
                 st.markdown(content)
                 col1, col2 = st.columns(2)
@@ -211,7 +218,6 @@ with tabs[0]:
                             st.session_state.book[title] = improved
                             st.experimental_rerun()
 
-# Narration Tab
 with tabs[1]:
     if "book" in st.session_state:
         for title, content in st.session_state.book.items():
@@ -221,7 +227,6 @@ with tabs[1]:
                     if audio:
                         st.audio(audio)
 
-# Illustrations Tab
 with tabs[2]:
     if "book" in st.session_state:
         for title, content in st.session_state.book.items():
@@ -234,7 +239,6 @@ with tabs[2]:
             if cover:
                 st.image(cover, caption="Book Cover", use_container_width=True)
 
-# Export Tab
 with tabs[3]:
     if "book" in st.session_state:
         col1, col2, col3 = st.columns(3)
@@ -249,19 +253,17 @@ with tabs[3]:
         with col3:
             st.download_button("Download JSON", json.dumps(st.session_state.book), file_name="book.json")
 
-# Characters Tab
 with tabs[4]:
     st.subheader("Create & Visualize Characters")
     if st.button("Generate Characters"):
         chars = generate_characters(prompt, genre, TONE_MAP[tone], model)
-        st.session_state.characters.append(chars)
+        st.session_state.characters.extend([c.strip() for c in chars.strip().split("\n\n") if c.strip()])
 
     if st.session_state.characters:
-        char_blocks = st.session_state.characters
-        for i, desc in enumerate(char_blocks):
+        for i, desc in enumerate(st.session_state.characters):
             with st.expander(f"Character {i+1}"):
                 st.markdown(desc)
-                edit_desc = st.text_area(f"Edit Description {i+1}", desc, key=f"edit_desc_{i}", height=300)
+                edit_desc = st.text_area(f"Edit Description {i+1}", desc, key=f"edit_desc_{i}")
                 if st.button(f"Update Character {i+1}", key=f"save_char_{i}"):
                     st.session_state.characters[i] = edit_desc
                 if st.button(f"Visualize {i+1}", key=f"viz_char_{i}"):
@@ -269,7 +271,6 @@ with tabs[4]:
                     if url:
                         st.image(url, caption=f"Character {i+1}", use_container_width=True)
 
-# Feedback Tab
 with tabs[5]:
     st.subheader("Help us improve NarrativaX")
     with st.form("feedback_form"):
