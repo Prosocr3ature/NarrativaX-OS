@@ -67,13 +67,19 @@ def call_openrouter(prompt, model, max_tokens=1800):
     }
     r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    return r.json()["choices"][0]["message"]["content"].strip()
 
 def generate_outline(prompt, genre, tone, chapters, model):
-    return call_openrouter(f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}", model)
+    return call_openrouter(
+        f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. "
+        f"Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}",
+        model)
 
 def generate_section(title, outline, model):
-    return call_openrouter(f"Write only the section '{title}' in full detail based on the following novel outline. Do not include other sections or chapters.\n\nOutline:\n{outline}\n\nSection: {title}", model)
+    return call_openrouter(
+        f"Write only the section '{title}' in full detail based on the following novel outline. "
+        f"Do not include other sections or chapters.\n\nOutline:\n{outline}\n\nSection: {title}",
+        model)
 
 def generate_full_book(outline, chapters, model):
     book = {}
@@ -85,8 +91,10 @@ def generate_full_book(outline, chapters, model):
     st.session_state.chapter_order = sections.copy()
     return book
 
-def generate_characters(prompt, genre, tone, model):
-    result = call_openrouter(f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.", model)
+def generate_characters(prompt, genre, tone, model, count=3):
+    result = call_openrouter(
+        f"Generate {count} unique characters for a {tone} {genre} story based on this: {prompt}. "
+        f"Format: Name, Role, Appearance, Personality, Motivation, Secret.", model)
     return result.split("\n\n")
 
 def generate_image(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
@@ -94,7 +102,7 @@ def generate_image(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
         try:
             model = IMAGE_MODELS[model_key]
             input_args = {
-                "prompt": prompt,
+                "prompt": prompt.strip()[:300],
                 "num_inference_steps": 30,
                 "guidance_scale": 7.5,
                 "width": 768,
@@ -113,6 +121,7 @@ def generate_cover(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
 
 def narrate_story(text, voice_id=None):
     try:
+        text = text.replace("\n", " ").strip()
         tts = gTTS(text)
         filename = f"narration_{voice_id or 'default'}.mp3"
         tts.save(filename)
@@ -145,6 +154,7 @@ def export_pdf(data):
     pdf.output(f.name)
     return f.name
 
+# --- SESSION HANDLING ---
 def save_session_json():
     if "book" in st.session_state:
         with open("session.json", "w") as f:
@@ -182,10 +192,9 @@ with st.expander("AI Story Settings", expanded=True):
     voice = st.selectbox("Voice", list(VOICES.keys()))
     img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
 
-# --- Tabs ---
 tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
 
-# Book Tab
+# --- Book Tab ---
 with tabs[0]:
     if st.button("Create Full Book"):
         with st.spinner("Generating outline and chapters..."):
@@ -212,25 +221,24 @@ with tabs[0]:
                     if st.button(f"AI Edit {title}", key=f"edit_{title}"):
                         instruction = st.text_input("Instruction", key=f"inst_{title}")
                         if instruction:
-                            improved = call_openrouter(f"Please {instruction}:\n\n{content}", model)
-                            st.session_state.book[title] = improved
+                            st.session_state.book[title] = call_openrouter(f"Please {instruction}:\n\n{content}", model)
 
-# Narration Tab
+# --- Narration Tab ---
 with tabs[1]:
     if st.session_state.book:
         for title, content in st.session_state.book.items():
-            with st.expander(f"\U0001F509 {title}"):
+            with st.expander(f"🔊 {title}"):
                 if st.button(f"Narrate {title}", key=f"narrate_{title}"):
                     audio = narrate_story(content, VOICES[voice])
                     if audio:
                         st.audio(audio)
 
-# Illustrations Tab
+# --- Illustrations Tab ---
 with tabs[2]:
     if st.session_state.book:
         for title, content in st.session_state.book.items():
             if st.button(f"Illustrate {title}", key=f"img_{title}"):
-                img_url = generate_image(content[:300], model_key=img_model)
+                img_url = generate_image(content, model_key=img_model)
                 if img_url:
                     st.image(img_url, caption=title, use_container_width=True)
         if st.button("Generate Book Cover"):
@@ -238,7 +246,7 @@ with tabs[2]:
             if cover:
                 st.image(cover, caption="Book Cover", use_container_width=True)
 
-# Export Tab
+# --- Export Tab ---
 with tabs[3]:
     if st.session_state.book:
         col1, col2, col3 = st.columns(3)
@@ -253,25 +261,61 @@ with tabs[3]:
         with col3:
             st.download_button("Download JSON", json.dumps(st.session_state.book), file_name="book.json")
 
-# Characters Tab
+# --- Characters Tab ---
 with tabs[4]:
     st.subheader("Create & Visualize Characters")
+
+    count = st.number_input("How many characters to generate?", 1, 20, 3)
     if st.button("Generate Characters"):
-        chars = generate_characters(prompt, genre, TONE_MAP[tone], model)
-        st.session_state.characters.extend(chars)
+        new_chars = generate_characters(prompt, genre, TONE_MAP[tone], model, count=int(count))
+        st.session_state.characters.extend(new_chars)
 
-    for i, desc in enumerate(st.session_state.characters):
-        with st.expander(f"Character {i+1}"):
-            st.markdown(desc)
-            edit_desc = st.text_area(f"Edit Description {i+1}", desc, key=f"edit_desc_{i}")
-            if st.button(f"Update Character {i+1}", key=f"save_char_{i}"):
-                st.session_state.characters[i] = edit_desc
-            if st.button(f"Visualize {i+1}", key=f"viz_char_{i}"):
-                url = generate_image(edit_desc, model_key=img_model)
-                if url:
-                    st.image(url, caption=f"Character {i+1}", use_container_width=True)
+    if st.session_state.characters:
+        for i, desc in enumerate(st.session_state.characters):
+            with st.expander(f"Character {i+1}"):
+                updated = st.text_area(f"Edit Character {i+1}", desc, key=f"edit_desc_{i}")
+                if updated != st.session_state.characters[i]:
+                    st.session_state.characters[i] = updated
 
-# Feedback Tab
+        if st.button("Visualize All Characters"):
+            cols = st.columns(3)
+            for i, desc in enumerate(st.session_state.characters):
+                with cols[i % 3]:
+                    st.markdown(f"**Character {i+1}**")
+                    image_url = generate_image(desc, model_key=img_model)
+                    if image_url:
+                        st.image(image_url, caption=f"Character {i+1}", use_container_width=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Export Characters DOCX"):
+                doc = Document()
+                doc.add_heading("NarrativaX Character Sheet", 0)
+                for i, desc in enumerate(st.session_state.characters):
+                    doc.add_heading(f"Character {i+1}", level=1)
+                    doc.add_paragraph(desc)
+                f = NamedTemporaryFile(delete=False, suffix=".docx")
+                doc.save(f.name)
+                st.download_button("Download DOCX", open(f.name, "rb"), file_name="characters.docx")
+
+        with col2:
+            if st.button("Export Characters PDF"):
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", size=12)
+                pdf.cell(200, 10, "NarrativaX Character Sheet", ln=True, align='C')
+                for i, desc in enumerate(st.session_state.characters):
+                    pdf.set_font("Arial", style="B", size=14)
+                    pdf.cell(200, 10, f"Character {i+1}", ln=True)
+                    pdf.set_font("Arial", size=12)
+                    for line in desc.splitlines():
+                        pdf.multi_cell(0, 10, line)
+                    pdf.ln()
+                f = NamedTemporaryFile(delete=False, suffix=".pdf")
+                pdf.output(f.name)
+                st.download_button("Download PDF", open(f.name, "rb"), file_name="characters.pdf")
+
+# --- Feedback Tab ---
 with tabs[5]:
     st.subheader("Help us improve NarrativaX")
     with st.form("feedback_form"):
