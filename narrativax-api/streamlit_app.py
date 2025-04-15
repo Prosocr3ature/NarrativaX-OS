@@ -73,7 +73,7 @@ def generate_outline(prompt, genre, tone, chapters, model):
     return call_openrouter(f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}", model)
 
 def generate_section(title, outline, model):
-    return call_openrouter(f"Write the section '{title}' in full based on this outline:\n{outline}", model)
+    return call_openrouter(f"Write only the section '{title}' in full detail based on the following novel outline. Do not include other sections or chapters.\n\nOutline:\n{outline}\n\nSection: {title}", model)
 
 def generate_full_book(outline, chapters, model):
     book = {}
