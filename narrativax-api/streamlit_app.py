@@ -70,9 +70,7 @@ def call_openrouter(prompt, model, max_tokens=1800):
     return r.json()["choices"][0]["message"]["content"]
 
 def generate_outline(prompt, genre, tone, chapters, model):
-    return call_openrouter(
-        f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}",
-        model)
+    return call_openrouter(f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}", model)
 
 def generate_section(title, outline, model):
     return call_openrouter(f"Write the section '{title}' in full based on this outline:\n{outline}", model)
@@ -88,9 +86,7 @@ def generate_full_book(outline, chapters, model):
     return book
 
 def generate_characters(prompt, genre, tone, model):
-    result = call_openrouter(
-        f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.",
-        model)
+    result = call_openrouter(f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.", model)
     return result.split("\n\n")
 
 def generate_image(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
@@ -186,7 +182,7 @@ with st.expander("AI Story Settings", expanded=True):
     voice = st.selectbox("Voice", list(VOICES.keys()))
     img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
 
-# --- TABS ---
+# --- Tabs ---
 tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
 
 # Book Tab
@@ -200,7 +196,7 @@ with tabs[0]:
 
     if st.session_state.book:
         st.subheader("Reorder Chapters")
-        reordered = sort_items(label="Reorder Chapters", items=st.session_state.chapter_order)
+        reordered = sort_items(st.session_state.chapter_order)
         if reordered:
             st.session_state.chapter_order = reordered
 
@@ -223,7 +219,7 @@ with tabs[0]:
 with tabs[1]:
     if st.session_state.book:
         for title, content in st.session_state.book.items():
-            with st.expander(f"🔊 {title}"):
+            with st.expander(f"\U0001F509 {title}"):
                 if st.button(f"Narrate {title}", key=f"narrate_{title}"):
                     audio = narrate_story(content, VOICES[voice])
                     if audio:
