@@ -1,18 +1,21 @@
-import os, time, textwrap, requests, json, uuid
+import os, time, textwrap, requests, json
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
 from gtts import gTTS
 import replicate
-from streamlit_browser_cookie_manager import get_cookie, set_cookie
+from streamlit_themes import set_theme
+
+# THEME SETUP
+set_theme({"base": "dark", "primaryColor": "#ff4b4b", "backgroundColor": "#0e1117", "secondaryBackgroundColor": "#262730", "textColor": "#fafafa", "font": "sans serif"})
 
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-# CONFIGS
+# CONFIG
 VOICES = {"Rachel": "default", "Bella": "default", "Antoni": "default", "Elli": "default", "Josh": "default"}
 TONE_MAP = {
     "Romantic": "sensual, romantic, literary",
@@ -20,13 +23,15 @@ TONE_MAP = {
     "Hardcore": "intense, vulgar, graphic, pornographic"
 }
 MODELS = [
-    "nothingiisreal/mn-celeste-12b", "openchat/openchat-3.5-0106",
-    "gryphe/mythomax-l2-13b", "nousresearch/nous-capybara-7b",
+    "nothingiisreal/mn-celeste-12b",
+    "openchat/openchat-3.5-0106",
+    "gryphe/mythomax-l2-13b",
+    "nousresearch/nous-capybara-7b",
     "cognitivecomputations/dolphin-mixtral"
 ]
 IMAGE_MODELS = {
-    "Reliberate V3 (Erotica/NSFW)": "asiryan/reliberate-v3:latest",
-    "Stable Diffusion (General Purpose)": "stability-ai/stable-diffusion:ac732df..."
+    "Reliberate V3 (Erotica/NSFW)": "asiryan/reliberate-v3:d70438fcb9bb7adb8d6e59cf236f754be0b77625e984b8595d1af02cdf034b29",
+    "Stable Diffusion (General Purpose)": "stability-ai/stable-diffusion:ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4"
 }
 GENRES = [
     "Erotica", "Dark Fantasy", "Sci-Fi", "Romance", "Thriller", "Adventure", "Historical Fiction",
@@ -34,13 +39,10 @@ GENRES = [
     "Psychological", "Crime", "LGBTQ+", "Action", "Paranormal"
 ]
 
-# STATE INIT
 if "last_saved" not in st.session_state:
     st.session_state.last_saved = None
 if "feedback_history" not in st.session_state:
     st.session_state.feedback_history = []
-if "characters" not in st.session_state:
-    st.session_state.characters = {}
 
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
@@ -75,28 +77,29 @@ def generate_full_book(outline, chapters, model):
     return book
 
 def generate_characters(prompt, genre, tone, model):
-    return call_openrouter(f"Generate 3 unique characters for a {tone} {genre} story. Format: Name, Role, Appearance, Personality, Motivation, Secret.\nPrompt: {prompt}", model)
+    return call_openrouter(f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.", model)
 
-def generate_image(prompt, model_key):
-    try:
-        model = IMAGE_MODELS[model_key]
-        input_args = {
-            "prompt": prompt,
-            "num_inference_steps": 30,
-            "guidance_scale": 7.5,
-            "width": 768,
-            "height": 1024
-        }
-        if "stable-diffusion" in model:
-            input_args["scheduler"] = "K_EULER"
-        output = replicate_client.run(model, input=input_args)
-        return output[0]
-    except Exception as e:
-        st.error(f"Image error: {e}")
-        return None
+def generate_image(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
+    with st.spinner("Generating image..."):
+        try:
+            model = IMAGE_MODELS[model_key]
+            input_args = {
+                "prompt": prompt,
+                "num_inference_steps": 30,
+                "guidance_scale": 7.5,
+                "width": 768,
+                "height": 1024
+            }
+            if "stable-diffusion" in model:
+                input_args["scheduler"] = "K_EULER"
+            output = replicate_client.run(model, input=input_args)
+            return output[0]
+        except Exception as e:
+            st.error(f"Image generation failed: {str(e)}")
+            return None
 
-def generate_cover(prompt, model_key):
-    return generate_image(prompt + ", full book cover", model_key)
+def generate_cover(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
+    return generate_image(prompt + ", full book cover, illustration", model_key)
 
 def narrate_story(text, voice_id=None):
     try:
@@ -133,107 +136,15 @@ def export_pdf(data):
 
 def save_session_json():
     if "book" in st.session_state:
-        set_cookie("narrativax_session", json.dumps(st.session_state.book), max_age_days=7)
+        with open("session.json", "w") as f:
+            json.dump(st.session_state.book, f)
         st.session_state.last_saved = time.time()
 
-def load_cookie_session():
-    data = get_cookie("narrativax_session")
-    if data:
-        try:
-            st.session_state.book = json.loads(data)
-        except:
-            st.warning("Could not load session.")
+def load_session_json():
+    try:
+        with open("session.json") as f:
+            st.session_state.book = json.load(f)
+    except Exception as e:
+        st.warning(f"Could not load session: {e}")
 
-# UI CONFIG
-st.set_page_config(page_title="NarrativaX Studio", layout="wide")
-load_cookie_session()
-
-with st.sidebar:
-    st.image("https://i.imgur.com/vGV9N5k.png", width=200)
-    st.markdown("**NarrativaX v2**")
-    if st.session_state.last_saved:
-        st.info(f"Last saved {int(time.time() - st.session_state.last_saved)}s ago")
-    st.button("Save Now", on_click=save_session_json)
-
-with st.expander("AI Story Settings", expanded=True):
-    prompt = st.text_area("Book Idea", height=150)
-    genre_type = st.radio("Genre Type", ["Normal", "Adult"], horizontal=True)
-    genre_list = [g for g in GENRES if (genre_type == "Adult") == (g in ["Erotica", "NSFW", "Hardcore"])]
-    genre = st.selectbox("Genre", genre_list)
-    tone = st.selectbox("Tone", list(TONE_MAP.keys()))
-    chapter_count = st.slider("Chapters", 6, 20, 8)
-    model = st.selectbox("LLM Model", MODELS)
-
-voice = st.selectbox("Voice", list(VOICES.keys()))
-img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
-
-tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
-
-# Tab: Book
-with tabs[0]:
-    if st.button("Create Book"):
-        outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
-        st.session_state.outline = outline
-        st.session_state.book = generate_full_book(outline, chapter_count, model)
-        save_session_json()
-    if "book" in st.session_state:
-        for title, content in st.session_state.book.items():
-            with st.expander(title):
-                st.markdown(content)
-                if st.button(f"Regenerate {title}", key=f"regen_{title}"):
-                    st.session_state.book[title] = generate_section(title, st.session_state.outline, model)
-                    st.experimental_rerun()
-
-# Tab: Narration
-with tabs[1]:
-    if "book" in st.session_state:
-        for title, content in st.session_state.book.items():
-            if st.button(f"Narrate {title}", key=f"narrate_{title}"):
-                audio = narrate_story(content, VOICES[voice])
-                if audio:
-                    st.audio(audio)
-
-# Tab: Illustrations
-with tabs[2]:
-    if "book" in st.session_state:
-        for title, content in st.session_state.book.items():
-            if st.button(f"Illustrate {title}", key=f"img_{title}"):
-                img_url = generate_image(content[:300], img_model)
-                if img_url:
-                    st.image(img_url, caption=title)
-
-# Tab: Export
-with tabs[3]:
-    if "book" in st.session_state:
-        if st.button("Export DOCX"):
-            path = export_docx(st.session_state.book)
-            st.download_button("Download DOCX", open(path, "rb"), file_name="book.docx")
-        if st.button("Export PDF"):
-            path = export_pdf(st.session_state.book)
-            st.download_button("Download PDF", open(path, "rb"), file_name="book.pdf")
-
-# Tab: Characters
-with tabs[4]:
-    new_char_name = st.text_input("Character Name")
-    new_char_prompt = st.text_area("Character Description")
-    if st.button("Generate Character"):
-        output = generate_characters(new_char_prompt or prompt, genre, TONE_MAP[tone], model)
-        st.session_state.characters[new_char_name or f"Char_{uuid.uuid4()}"] = output
-    for name, profile in st.session_state.characters.items():
-        with st.expander(f"{name}"):
-            st.markdown(profile)
-            if st.button(f"Regenerate Image for {name}"):
-                img_url = generate_image(profile, model_key=img_model)
-                if img_url:
-                    st.image(img_url, caption=name)
-
-# Tab: Feedback
-with tabs[5]:
-    with st.form("feedback_form"):
-        feedback = st.text_area("Feedback or suggestions")
-        submitted = st.form_submit_button("Submit")
-        if submitted:
-            st.session_state.feedback_history.append(feedback)
-            st.success("Thanks — feedback stored.")
-    for entry in st.session_state.feedback_history[-5:]:
-        st.info(entry)
+# All remaining UI logic goes here after this block...
