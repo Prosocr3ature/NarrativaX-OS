@@ -1,10 +1,13 @@
-import os, time, json, requests
+# Final version of NarrativaX with all requested features
+
+import os, time, requests, json, textwrap
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
 from gtts import gTTS
 import replicate
+from streamlit_extras.stylable_container import stylable_container
 from streamlit_sortables import sort_items
 
 # KEYS
@@ -37,17 +40,18 @@ GENRES = [
 ]
 
 # STATE INIT
-st.set_page_config(page_title="NarrativaX", layout="wide")
-st.title("NarrativaX — AI Book Creation Studio")
+if "last_saved" not in st.session_state:
+    st.session_state.last_saved = None
+if "feedback_history" not in st.session_state:
+    st.session_state.feedback_history = []
+if "characters" not in st.session_state:
+    st.session_state.characters = []
+if "book" not in st.session_state:
+    st.session_state.book = {}
+if "chapter_order" not in st.session_state:
+    st.session_state.chapter_order = []
 
-if "book" not in st.session_state: st.session_state.book = {}
-if "outline" not in st.session_state: st.session_state.outline = ""
-if "last_saved" not in st.session_state: st.session_state.last_saved = None
-if "characters" not in st.session_state: st.session_state.characters = []
-if "feedback_history" not in st.session_state: st.session_state.feedback_history = []
-
-# CORE
-
+# AI Core Functions
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -67,8 +71,8 @@ def call_openrouter(prompt, model, max_tokens=1800):
 
 def generate_outline(prompt, genre, tone, chapters, model):
     return call_openrouter(
-        f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}",
-        model)
+        f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. "
+        f"Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}", model)
 
 def generate_section(title, outline, model):
     return call_openrouter(f"Write the section '{title}' in full based on this outline:\n{outline}", model)
@@ -76,17 +80,17 @@ def generate_section(title, outline, model):
 def generate_full_book(outline, chapters, model):
     book = {}
     sections = ["Foreword", "Introduction"] + [f"Chapter {i+1}" for i in range(chapters)] + ["Final Words"]
-    progress = st.progress(0)
-    for idx, sec in enumerate(sections):
+    for sec in sections:
         book[sec] = generate_section(sec, outline, model)
-        progress.progress((idx + 1) / len(sections))
+    st.session_state.chapter_order = list(book.keys())
     return book
 
 def generate_characters(prompt, genre, tone, model):
-    raw = call_openrouter(f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.", model)
-    return raw.split("\n\n")
+    result = call_openrouter(
+        f"Generate 3 unique characters for a {tone} {genre} story based on this: {prompt}. Format: Name, Role, Appearance, Personality, Motivation, Secret.", model)
+    return [char.strip() for char in result.split("\n\n") if char.strip()]
 
-def generate_image(prompt, model_key):
+def generate_image(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
     with st.spinner("Generating image..."):
         try:
             model = IMAGE_MODELS[model_key]
@@ -105,23 +109,26 @@ def generate_image(prompt, model_key):
             st.error(f"Image generation failed: {str(e)}")
             return None
 
-def narrate_story(text, voice):
+def generate_cover(prompt, model_key="Reliberate V3 (Erotica/NSFW)"):
+    return generate_image(prompt + ", full book cover, illustration", model_key)
+
+def narrate_story(text, voice_id=None):
     try:
         tts = gTTS(text)
-        fname = f"narration_{voice}.mp3"
-        tts.save(fname)
-        return fname
+        filename = f"narration_{voice_id or 'default'}.mp3"
+        tts.save(filename)
+        return filename
     except Exception as e:
         st.error(f"TTS failed: {e}")
         return None
 
-# --- Export
+# Export
 
 def export_docx(data):
     doc = Document()
-    for k, v in data.items():
+    for k in st.session_state.chapter_order:
         doc.add_heading(k, level=1)
-        doc.add_paragraph(v)
+        doc.add_paragraph(data[k])
     f = NamedTemporaryFile(delete=False, suffix=".docx")
     doc.save(f.name)
     return f.name
@@ -130,26 +137,43 @@ def export_pdf(data):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
-    for k, v in data.items():
+    for k in st.session_state.chapter_order:
         pdf.set_font("Arial", style="B", size=14)
         pdf.cell(200, 10, k, ln=True)
         pdf.set_font("Arial", size=12)
-        for line in v.splitlines():
+        for line in data[k].splitlines():
             pdf.multi_cell(0, 10, line)
     f = NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf.output(f.name)
     return f.name
 
-# --- UI
+def save_session_json():
+    if "book" in st.session_state:
+        with open("session.json", "w") as f:
+            json.dump(st.session_state.book, f)
+        st.session_state.last_saved = time.time()
+
+def load_session_json():
+    try:
+        with open("session.json") as f:
+            st.session_state.book = json.load(f)
+            st.session_state.chapter_order = list(st.session_state.book.keys())
+    except Exception as e:
+        st.warning(f"Could not load session: {e}")
+
+# UI Setup
+st.set_page_config(page_title="NarrativaX Studio", layout="wide")
+st.title("NarrativaX — AI Book Creation Studio")
 
 with st.sidebar:
     st.image("https://i.imgur.com/vGV9N5k.png", width=200)
-    st.markdown("**NarrativaX v3**")
-    st.button("Save Session", on_click=lambda: save_session())
-    st.button("Load Session", on_click=lambda: load_session())
-    if st.toggle("Dark Mode"):
-        st.markdown("<style>body{background:#111;color:white;}</style>", unsafe_allow_html=True)
+    st.markdown("**NarrativaX v2**")
+    if st.session_state.last_saved:
+        st.info(f"Last saved {int(time.time() - st.session_state.last_saved)}s ago")
+    st.button("Save Now", on_click=save_session_json)
+    st.button("Load Session", on_click=load_session_json)
 
+# Input Controls
 with st.expander("AI Story Settings", expanded=True):
     prompt = st.text_area("Book Idea", height=150)
     genre_type = st.radio("Genre Type", ["Normal", "Adult"], horizontal=True)
@@ -157,102 +181,91 @@ with st.expander("AI Story Settings", expanded=True):
     genre = st.selectbox("Genre", genre_list)
     tone = st.selectbox("Tone", list(TONE_MAP.keys()))
     chapter_count = st.slider("Chapters", 6, 20, 8)
-    model = st.selectbox("Model", MODELS)
+    model = st.selectbox("Choose LLM", MODELS)
     voice = st.selectbox("Voice", list(VOICES.keys()))
     img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
 
-# --- Tabs
+# TABS
 
 tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
 
 with tabs[0]:
     if st.button("Create Full Book"):
-        outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
-        st.session_state.outline = outline
-        st.session_state.book = generate_full_book(outline, chapter_count, model)
+        with st.spinner("Generating outline and chapters..."):
+            outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
+            st.session_state.outline = outline
+            st.session_state.book = generate_full_book(outline, chapter_count, model)
+            save_session_json()
 
     if st.session_state.book:
-        reordered_titles = sort_items(list(st.session_state.book.keys()), direction="vertical")
-        st.session_state.book = {title: st.session_state.book[title] for title in reordered_titles}
-
-        for title in reordered_titles:
-            with st.expander(f"✍️ {title}"):
-                st.markdown(st.session_state.book[title])
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button(f"Regenerate {title}", key=f"regen_{title}"):
-                        st.session_state.book[title] = generate_section(title, st.session_state.outline, model)
-                with col2:
-                    if st.button(f"Rewrite {title}", key=f"edit_{title}"):
-                        instruction = st.text_input("Instruction", key=f"inst_{title}")
-                        if instruction:
-                            improved = call_openrouter(f"Please {instruction} this:\n\n{st.session_state.book[title]}", model)
-                            st.session_state.book[title] = improved
+        st.markdown("### Book Preview")
+        if sort_items(label="Reorder Chapters", items=st.session_state.chapter_order):
+            st.rerun()
+        for title in st.session_state.chapter_order:
+            content = st.session_state.book[title]
+            with st.expander(f"✍️ {title}", expanded=False):
+                st.markdown(content)
+                inst = st.text_input(f"AI Edit Instruction for {title}", key=f"inst_{title}")
+                if st.button(f"Apply Edit", key=f"edit_{title}"):
+                    new_text = call_openrouter(f"Please {inst} the following:\n{content}", model)
+                    st.session_state.book[title] = new_text
+                    save_session_json()
 
 with tabs[1]:
-    for title, content in st.session_state.book.items():
+    for title in st.session_state.chapter_order:
+        content = st.session_state.book[title]
         with st.expander(f"🔊 {title}"):
-            if st.button(f"Narrate {title}", key=f"tts_{title}"):
-                audio = narrate_story(content, voice)
+            if st.button(f"Narrate {title}", key=f"narrate_{title}"):
+                audio = narrate_story(content, VOICES[voice])
                 if audio:
                     st.audio(audio)
 
 with tabs[2]:
-    for title, content in st.session_state.book.items():
+    for title in st.session_state.chapter_order:
+        content = st.session_state.book[title]
         if st.button(f"Illustrate {title}", key=f"img_{title}"):
-            url = generate_image(content[:300], img_model)
-            if url: st.image(url, caption=title, use_container_width=True)
+            img_url = generate_image(content[:300], model_key=img_model)
+            if img_url:
+                st.image(img_url, caption=title, use_container_width=True)
+    if st.button("Generate Book Cover"):
+        cover = generate_cover(prompt, model_key=img_model)
+        if cover:
+            st.image(cover, caption="Book Cover", use_container_width=True)
 
 with tabs[3]:
-    if st.button("Export DOCX"):
+    col1, col2, col3 = st.columns(3)
+    with col1:
         path = export_docx(st.session_state.book)
         st.download_button("Download DOCX", open(path, "rb"), file_name="book.docx")
-    if st.button("Export PDF"):
+    with col2:
         path = export_pdf(st.session_state.book)
         st.download_button("Download PDF", open(path, "rb"), file_name="book.pdf")
-    st.download_button("Download JSON", json.dumps(st.session_state.book), file_name="book.json")
+    with col3:
+        st.download_button("Download JSON", json.dumps(st.session_state.book), file_name="book.json")
 
 with tabs[4]:
+    st.subheader("Create & Visualize Characters")
     if st.button("Generate Characters"):
-        characters = generate_characters(prompt, genre, TONE_MAP[tone], model)
-        for c in characters:
-            st.session_state.characters.append({"desc": c, "img": None})
-
-    for i, char in enumerate(st.session_state.characters):
+        new_chars = generate_characters(prompt, genre, TONE_MAP[tone], model)
+        st.session_state.characters.extend(new_chars)
+    for i, desc in enumerate(st.session_state.characters):
         with st.expander(f"Character {i+1}"):
-            edited = st.text_area("Description", char["desc"], height=250, key=f"edit_{i}")
-            st.session_state.characters[i]["desc"] = edited
-            if st.button(f"Visualize Character {i+1}", key=f"viz_char_{i}"):
-                img = generate_image(edited, img_model)
-                st.session_state.characters[i]["img"] = img
-            if char.get("img"):
-                st.image(char["img"], caption=f"Character {i+1}", use_container_width=True)
+            st.markdown(desc)
+            edit_desc = st.text_area(f"Edit Description {i+1}", desc, key=f"edit_desc_{i}")
+            if st.button(f"Update Character {i+1}", key=f"save_char_{i}"):
+                st.session_state.characters[i] = edit_desc
+            if st.button(f"Visualize {i+1}", key=f"viz_char_{i}"):
+                url = generate_image(edit_desc, model_key=img_model)
+                if url:
+                    st.image(url, caption=f"Character {i+1}", use_container_width=True)
 
 with tabs[5]:
-    feedback = st.text_area("We'd love your thoughts")
-    if st.button("Submit Feedback"):
-        st.session_state.feedback_history.append(feedback)
-        st.success("Thanks for your input!")
-    for fb in st.session_state.feedback_history[-5:]:
-        st.info(fb)
-
-# --- Persistence
-
-def save_session():
-    with open("session.json", "w") as f:
-        json.dump({
-            "book": st.session_state.book,
-            "outline": st.session_state.outline,
-            "characters": st.session_state.characters
-        }, f)
-    st.session_state.last_saved = time.time()
-
-def load_session():
-    try:
-        with open("session.json") as f:
-            data = json.load(f)
-            st.session_state.book = data.get("book", {})
-            st.session_state.outline = data.get("outline", "")
-            st.session_state.characters = data.get("characters", [])
-    except:
-        st.warning("Could not load session")
+    st.subheader("Help us improve NarrativaX")
+    with st.form("feedback_form"):
+        feedback = st.text_area("What would you like to see improved?")
+        submitted = st.form_submit_button("Submit")
+        if submitted:
+            st.session_state.feedback_history.append(feedback)
+            st.success("Thank you! We'll adapt accordingly.")
+    for item in st.session_state.feedback_history[-5:]:
+        st.info(item)
