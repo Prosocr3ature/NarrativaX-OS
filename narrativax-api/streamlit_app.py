@@ -1,14 +1,12 @@
-import os, time, textwrap, requests, json
+# NarrativaX Full Application Code
+import os, time, requests, json
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
 from gtts import gTTS
 import replicate
-from streamlit_themes import set_theme
-
-# THEME SETUP
-set_theme({"base": "dark", "primaryColor": "#ff4b4b", "backgroundColor": "#0e1117", "secondaryBackgroundColor": "#262730", "textColor": "#fafafa", "font": "sans serif"})
+from streamlit_cookies_manager import EncryptedCookieManager
 
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -39,11 +37,21 @@ GENRES = [
     "Psychological", "Crime", "LGBTQ+", "Action", "Paranormal"
 ]
 
-if "last_saved" not in st.session_state:
-    st.session_state.last_saved = None
-if "feedback_history" not in st.session_state:
-    st.session_state.feedback_history = []
+# COOKIE SETUP
+cookies = EncryptedCookieManager(prefix="narrativax/")
+if not cookies.ready():
+    st.stop()
 
+if "book" in cookies:
+    st.session_state.book = json.loads(cookies.get("book"))
+if "characters" in cookies:
+    st.session_state.characters = cookies.get("characters")
+
+# STATE DEFAULTS
+st.session_state.setdefault("last_saved", None)
+st.session_state.setdefault("feedback_history", [])
+
+# FUNCTIONS
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -62,7 +70,9 @@ def call_openrouter(prompt, model, max_tokens=1800):
     return r.json()["choices"][0]["message"]["content"]
 
 def generate_outline(prompt, genre, tone, chapters, model):
-    return call_openrouter(f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}", model)
+    return call_openrouter(
+        f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}",
+        model)
 
 def generate_section(title, outline, model):
     return call_openrouter(f"Write the section '{title}' in full based on this outline:\n{outline}", model)
@@ -134,17 +144,107 @@ def export_pdf(data):
     pdf.output(f.name)
     return f.name
 
-def save_session_json():
+def save_session():
+    cookies.set("book", json.dumps(st.session_state.get("book", {})))
+    cookies.set("characters", st.session_state.get("characters", ""))
+    st.session_state.last_saved = time.time()
+
+# UI START
+st.set_page_config(page_title="NarrativaX Studio", layout="wide")
+st.title("NarrativaX — AI Book Creation Studio")
+
+with st.sidebar:
+    st.image("https://i.imgur.com/vGV9N5k.png", width=200)
+    st.markdown("**NarrativaX v2**")
+    if st.session_state.last_saved:
+        st.info(f"Last saved {int(time.time() - st.session_state.last_saved)}s ago")
+    st.button("Save Now", on_click=save_session)
+
+with st.expander("AI Story Settings", expanded=True):
+    prompt = st.text_area("Book Idea", height=150)
+    genre_type = st.radio("Genre Type", ["Normal", "Adult"], horizontal=True)
+    genre_list = [g for g in GENRES if (genre_type == "Adult") == (g in ["Erotica", "NSFW", "Hardcore"])]
+    genre = st.selectbox("Genre", genre_list)
+    tone = st.selectbox("Tone", list(TONE_MAP.keys()))
+    chapter_count = st.slider("Chapters", 6, 20, 8)
+    model = st.selectbox("Choose LLM", MODELS)
+
+voice = st.selectbox("Voice", list(VOICES.keys()))
+img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
+
+st.markdown("---")
+tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
+
+with tabs[0]:
+    if st.button("Create Full Book"):
+        with st.spinner("Generating outline and chapters..."):
+            outline = generate_outline(prompt, genre, TONE_MAP[tone], chapter_count, model)
+            st.session_state.outline = outline
+            st.session_state.book = generate_full_book(outline, chapter_count, model)
+            save_session()
     if "book" in st.session_state:
-        with open("session.json", "w") as f:
-            json.dump(st.session_state.book, f)
-        st.session_state.last_saved = time.time()
+        for title, content in st.session_state.book.items():
+            with st.expander(title):
+                st.markdown(f"**{title}**")
+                st.markdown(content)
+                if st.button(f"Regenerate {title}", key=f"regen_{title}"):
+                    st.session_state.book[title] = generate_section(title, st.session_state.outline, model)
+                    save_session()
+                    st.experimental_rerun()
 
-def load_session_json():
-    try:
-        with open("session.json") as f:
-            st.session_state.book = json.load(f)
-    except Exception as e:
-        st.warning(f"Could not load session: {e}")
+with tabs[1]:
+    if "book" in st.session_state:
+        for title, content in st.session_state.book.items():
+            with st.expander(title):
+                if st.button(f"Narrate {title}", key=f"narrate_{title}"):
+                    audio = narrate_story(content, VOICES[voice])
+                    if audio:
+                        st.audio(audio)
 
-# All remaining UI logic goes here after this block...
+with tabs[2]:
+    if "book" in st.session_state:
+        for title, content in st.session_state.book.items():
+            if st.button(f"Illustrate {title}", key=f"img_{title}"):
+                img_url = generate_image(content[:300], model_key=img_model)
+                if img_url:
+                    st.image(img_url, caption=title, use_container_width=True)
+        if st.button("Cover Art"):
+            cover = generate_cover(prompt, model_key=img_model)
+            if cover:
+                st.image(cover, caption="Book Cover", use_container_width=True)
+
+with tabs[3]:
+    if "book" in st.session_state:
+        if st.button("Export DOCX"):
+            path = export_docx(st.session_state.book)
+            st.download_button("Download DOCX", open(path, "rb"), file_name="book.docx")
+        if st.button("Export PDF"):
+            path = export_pdf(st.session_state.book)
+            st.download_button("Download PDF", open(path, "rb"), file_name="book.pdf")
+
+with tabs[4]:
+    if st.button("Generate Characters"):
+        chars = generate_characters(prompt, genre, TONE_MAP[tone], model)
+        st.text_area("Characters", chars, height=200)
+        st.session_state.characters = chars
+        save_session()
+    if "characters" in st.session_state:
+        for i, desc in enumerate(st.session_state.characters.split("\n\n")[:3]):
+            try:
+                url = generate_image(desc, model_key=img_model)
+                if url:
+                    st.image(url, caption=f"Character {i+1}", use_container_width=True)
+            except:
+                st.warning(f"Image failed: Character {i+1}")
+
+with tabs[5]:
+    with st.form("feedback_form"):
+        feedback = st.text_area("Suggestions, bugs or features you'd like?")
+        submitted = st.form_submit_button("Submit")
+        if submitted:
+            st.session_state.feedback_history.append(feedback)
+            st.success("Feedback received. AI will adapt accordingly.")
+    if st.session_state.feedback_history:
+        st.markdown("### Past Feedback")
+        for item in st.session_state.feedback_history[-5:]:
+            st.info(item)
