@@ -1,5 +1,5 @@
-# NarrativaX Full Application Code
-import os, time, requests, json
+
+import os, time, textwrap, requests, json
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
@@ -13,6 +13,11 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
+# COOKIE STORAGE
+cookies = EncryptedCookieManager(prefix="narrativax/")
+if not cookies.ready():
+    st.stop()
+
 # CONFIG
 VOICES = {"Rachel": "default", "Bella": "default", "Antoni": "default", "Elli": "default", "Josh": "default"}
 TONE_MAP = {
@@ -21,10 +26,8 @@ TONE_MAP = {
     "Hardcore": "intense, vulgar, graphic, pornographic"
 }
 MODELS = [
-    "nothingiisreal/mn-celeste-12b",
-    "openchat/openchat-3.5-0106",
-    "gryphe/mythomax-l2-13b",
-    "nousresearch/nous-capybara-7b",
+    "nothingiisreal/mn-celeste-12b", "openchat/openchat-3.5-0106", 
+    "gryphe/mythomax-l2-13b", "nousresearch/nous-capybara-7b", 
     "cognitivecomputations/dolphin-mixtral"
 ]
 IMAGE_MODELS = {
@@ -37,21 +40,26 @@ GENRES = [
     "Psychological", "Crime", "LGBTQ+", "Action", "Paranormal"
 ]
 
-# COOKIE SETUP
-cookies = EncryptedCookieManager(prefix="narrativax/")
-if not cookies.ready():
-    st.stop()
+# SESSION INIT
+st.set_page_config(page_title="NarrativaX Studio", layout="wide")
+st.title("NarrativaX — AI Book Creation Studio")
 
-if "book" in cookies:
-    st.session_state.book = json.loads(cookies.get("book"))
-if "characters" in cookies:
-    st.session_state.characters = cookies.get("characters")
+if "book" not in st.session_state and cookies.get("book"):
+    try:
+        st.session_state.book = json.loads(cookies.get("book"))
+    except:
+        st.session_state.book = {}
+if "characters" not in st.session_state and cookies.get("characters"):
+    try:
+        st.session_state.characters = cookies.get("characters")
+    except:
+        st.session_state.characters = ""
+if "last_saved" not in st.session_state:
+    st.session_state.last_saved = time.time()
+if "feedback_history" not in st.session_state:
+    st.session_state.feedback_history = []
 
-# STATE DEFAULTS
-st.session_state.setdefault("last_saved", None)
-st.session_state.setdefault("feedback_history", [])
-
-# FUNCTIONS
+# HELPERS
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -70,9 +78,7 @@ def call_openrouter(prompt, model, max_tokens=1800):
     return r.json()["choices"][0]["message"]["content"]
 
 def generate_outline(prompt, genre, tone, chapters, model):
-    return call_openrouter(
-        f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}",
-        model)
+    return call_openrouter(f"You are a ghostwriter. Create a complete outline for a {tone} {genre} novel with {chapters} chapters. Include: Title, Foreword, Introduction, {chapters} chapter titles, Final Words. Concept: {prompt}", model)
 
 def generate_section(title, outline, model):
     return call_openrouter(f"Write the section '{title}' in full based on this outline:\n{outline}", model)
@@ -145,21 +151,23 @@ def export_pdf(data):
     return f.name
 
 def save_session():
-    cookies.set("book", json.dumps(st.session_state.get("book", {})))
-    cookies.set("characters", st.session_state.get("characters", ""))
+    if "book" in st.session_state:
+        cookies["book"] = json.dumps(st.session_state.book)
+    if "characters" in st.session_state:
+        cookies["characters"] = st.session_state.characters
+    cookies.save()
     st.session_state.last_saved = time.time()
 
-# UI START
-st.set_page_config(page_title="NarrativaX Studio", layout="wide")
-st.title("NarrativaX — AI Book Creation Studio")
-
+# SIDEBAR
 with st.sidebar:
     st.image("https://i.imgur.com/vGV9N5k.png", width=200)
     st.markdown("**NarrativaX v2**")
     if st.session_state.last_saved:
         st.info(f"Last saved {int(time.time() - st.session_state.last_saved)}s ago")
-    st.button("Save Now", on_click=save_session)
+    if st.button("Save Now"):
+        save_session()
 
+# MAIN SETTINGS
 with st.expander("AI Story Settings", expanded=True):
     prompt = st.text_area("Book Idea", height=150)
     genre_type = st.radio("Genre Type", ["Normal", "Adult"], horizontal=True)
@@ -171,8 +179,6 @@ with st.expander("AI Story Settings", expanded=True):
 
 voice = st.selectbox("Voice", list(VOICES.keys()))
 img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
-
-st.markdown("---")
 tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
 
 with tabs[0]:
@@ -183,6 +189,7 @@ with tabs[0]:
             st.session_state.book = generate_full_book(outline, chapter_count, model)
             save_session()
     if "book" in st.session_state:
+        st.markdown("### Book Preview")
         for title, content in st.session_state.book.items():
             with st.expander(title):
                 st.markdown(f"**{title}**")
