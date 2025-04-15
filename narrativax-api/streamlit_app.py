@@ -75,11 +75,11 @@ def generate_section(title, outline, model):
 def generate_full_book(outline, chapters, model):
     book = {}
     sections = ["Foreword", "Introduction"] + [f"Chapter {i+1}" for i in range(chapters)] + ["Final Words"]
+    st.session_state.chapter_order = sections.copy()
     progress = st.progress(0)
     for idx, sec in enumerate(sections):
         book[sec] = generate_section(sec, outline, model)
         progress.progress((idx + 1) / len(sections))
-    st.session_state.chapter_order = sections
     return book
 
 def generate_characters(prompt, genre, tone, model):
@@ -173,6 +173,7 @@ with st.sidebar:
     if st.toggle("Dark Mode"):
         st.markdown("<style>body{background-color:#121212; color:white;}</style>", unsafe_allow_html=True)
 
+# --- Input Controls ---
 with st.expander("AI Story Settings", expanded=True):
     prompt = st.text_area("Book Idea", height=150)
     genre_type = st.radio("Genre Type", ["Normal", "Adult"], horizontal=True)
@@ -184,10 +185,10 @@ with st.expander("AI Story Settings", expanded=True):
     voice = st.selectbox("Voice", list(VOICES.keys()))
     img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
 
-# Tabs
-with st.container():
-    tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
+# --- Tabs ---
+tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
 
+# Book Tab
 with tabs[0]:
     if st.button("Create Full Book"):
         with st.spinner("Generating outline and chapters..."):
@@ -197,10 +198,12 @@ with tabs[0]:
             save_session_json()
 
     if "book" in st.session_state:
-        st.markdown("### Book Preview")
+        st.markdown("### Reorder Chapters")
         if sort_items(label="Reorder Chapters", items=st.session_state.chapter_order):
-            st.session_state.book = {k: st.session_state.book[k] for k in st.session_state.chapter_order if k in st.session_state.book}
-            st.experimental_rerun()
+            new_order = sort_items(label="Reorder Chapters", items=st.session_state.chapter_order)
+            st.session_state.chapter_order = new_order
+
+        st.markdown("### Book Preview")
         for title in st.session_state.chapter_order:
             content = st.session_state.book.get(title, "")
             with st.expander(f"✍️ {title}", expanded=False):
@@ -209,15 +212,16 @@ with tabs[0]:
                 with col1:
                     if st.button(f"Regenerate {title}", key=f"regen_{title}"):
                         st.session_state.book[title] = generate_section(title, st.session_state.outline, model)
-                        st.experimental_rerun()
+                        st.rerun()
                 with col2:
                     if st.button(f"AI Edit {title}", key=f"edit_{title}"):
                         instruction = st.text_input("Instruction", key=f"inst_{title}")
                         if instruction:
                             improved = call_openrouter(f"Please {instruction}:\n\n{content}", model)
                             st.session_state.book[title] = improved
-                            st.experimental_rerun()
+                            st.rerun()
 
+# Narration Tab
 with tabs[1]:
     if "book" in st.session_state:
         for title, content in st.session_state.book.items():
@@ -227,6 +231,7 @@ with tabs[1]:
                     if audio:
                         st.audio(audio)
 
+# Illustrations Tab
 with tabs[2]:
     if "book" in st.session_state:
         for title, content in st.session_state.book.items():
@@ -239,6 +244,7 @@ with tabs[2]:
             if cover:
                 st.image(cover, caption="Book Cover", use_container_width=True)
 
+# Export Tab
 with tabs[3]:
     if "book" in st.session_state:
         col1, col2, col3 = st.columns(3)
@@ -253,11 +259,13 @@ with tabs[3]:
         with col3:
             st.download_button("Download JSON", json.dumps(st.session_state.book), file_name="book.json")
 
+# Characters Tab
 with tabs[4]:
     st.subheader("Create & Visualize Characters")
     if st.button("Generate Characters"):
         chars = generate_characters(prompt, genre, TONE_MAP[tone], model)
-        st.session_state.characters.extend([c.strip() for c in chars.strip().split("\n\n") if c.strip()])
+        for c in chars.split("\n\n"):
+            st.session_state.characters.append(c)
 
     if st.session_state.characters:
         for i, desc in enumerate(st.session_state.characters):
@@ -271,6 +279,7 @@ with tabs[4]:
                     if url:
                         st.image(url, caption=f"Character {i+1}", use_container_width=True)
 
+# Feedback Tab
 with tabs[5]:
     st.subheader("Help us improve NarrativaX")
     with st.form("feedback_form"):
