@@ -1,21 +1,15 @@
-import os, time, textwrap, requests, json
+import os, time, requests, json, textwrap
 import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
 from gtts import gTTS
 import replicate
-from streamlit_cookies_manager import EncryptedCookieManager
 
 # KEYS
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-
-# COOKIES
-cookies = EncryptedCookieManager(prefix="narrativax/")
-if not cookies.ready():
-    st.stop()
 
 # CONFIG
 VOICES = {"Rachel": "default", "Bella": "default", "Antoni": "default", "Elli": "default", "Josh": "default"}
@@ -41,15 +35,13 @@ GENRES = [
     "Psychological", "Crime", "LGBTQ+", "Action", "Paranormal"
 ]
 
-# STATE
 if "last_saved" not in st.session_state:
-    st.session_state.last_saved = time.time()
+    st.session_state.last_saved = None
 if "feedback_history" not in st.session_state:
     st.session_state.feedback_history = []
 if "characters" not in st.session_state:
-    st.session_state.characters = {}
-
-# UTILS
+    st.session_state.characters = []
+    
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -142,37 +134,31 @@ def export_pdf(data):
 
 def save_session_json():
     if "book" in st.session_state:
-        cookies["autosave"] = json.dumps({
-            "book": st.session_state.book,
-            "characters": st.session_state.characters,
-            "last_saved": time.time()
-        })
-        cookies.save()
+        with open("session.json", "w") as f:
+            json.dump(st.session_state.book, f)
         st.session_state.last_saved = time.time()
 
 def load_session_json():
-    if cookies.get("autosave"):
-        try:
-            data = json.loads(cookies.get("autosave"))
-            st.session_state.book = data.get("book", {})
-            st.session_state.characters = data.get("characters", {})
-            st.session_state.last_saved = data.get("last_saved", time.time())
-        except Exception as e:
-            st.warning("Corrupted session data.")
-
-# --- UI ---
-st.set_page_config(page_title="NarrativaX Studio", layout="wide")
+    try:
+        with open("session.json") as f:
+            st.session_state.book = json.load(f)
+    except Exception as e:
+        st.warning(f"Could not load session: {e}")
+        
+        st.set_page_config(page_title="NarrativaX Studio", layout="wide")
 st.title("NarrativaX — AI Book Creation Studio")
 
 with st.sidebar:
     st.image("https://i.imgur.com/vGV9N5k.png", width=200)
     st.markdown("**NarrativaX v2**")
-    load_session_json()
     if st.session_state.last_saved:
         st.info(f"Last saved {int(time.time() - st.session_state.last_saved)}s ago")
-    st.button("Save Now", on_click=save_session_json)
+    if st.button("Save Now"):
+        save_session_json()
+    if st.button("Load Session"):
+        load_session_json()
     if st.toggle("Dark Mode"):
-        st.markdown("<style>body{background-color:#121212;color:white;}</style>", unsafe_allow_html=True)
+        st.markdown("<style>body{background-color:#121212; color:white;}</style>", unsafe_allow_html=True)
 
 with st.expander("AI Story Settings", expanded=True):
     prompt = st.text_area("Book Idea", height=150)
@@ -185,7 +171,6 @@ with st.expander("AI Story Settings", expanded=True):
     voice = st.selectbox("Voice", list(VOICES.keys()))
     img_model = st.selectbox("Image Model", list(IMAGE_MODELS.keys()))
 
-st.markdown("---")
 tabs = st.tabs(["Book", "Narration", "Illustrations", "Export", "Characters", "Feedback"])
 
 with tabs[0]:
@@ -195,69 +180,91 @@ with tabs[0]:
             st.session_state.outline = outline
             st.session_state.book = generate_full_book(outline, chapter_count, model)
             save_session_json()
+
     if "book" in st.session_state:
+        st.markdown("### Book Preview")
         for title, content in st.session_state.book.items():
-            with st.expander(title):
+            with st.expander(f"✍️ {title}", expanded=False):
                 st.markdown(f"**{title}**")
                 st.markdown(content)
-                if st.button(f"Regenerate {title}", key=f"regen_{title}"):
-                    st.session_state.book[title] = generate_section(title, st.session_state.outline, model)
-                    st.experimental_rerun()
-
-with tabs[1]:
+                col1, col2, col3 = st.columns([1, 1, 2])
+                with col1:
+                    if st.button(f"Regenerate {title}", key=f"regen_{title}"):
+                        st.session_state.book[title] = generate_section(title, st.session_state.outline, model)
+                        st.experimental_rerun()
+                with col2:
+                    if st.button(f"AI Edit {title}", key=f"edit_{title}"):
+                        instruction = st.text_input("Instruction (e.g. make this more dramatic)")
+                        if instruction:
+                            improved = call_openrouter(f"Please {instruction}:\n\n{content}", model)
+                            st.session_state.book[title] = improved
+                            st.experimental_rerun()
+                            
+with tabs[1]:  # Narration
     if "book" in st.session_state:
         for title, content in st.session_state.book.items():
-            with st.expander(title):
+            with st.expander(f"🔊 {title}"):
                 if st.button(f"Narrate {title}", key=f"narrate_{title}"):
                     audio = narrate_story(content, VOICES[voice])
                     if audio:
                         st.audio(audio)
 
-with tabs[2]:
+with tabs[2]:  # Illustrations
     if "book" in st.session_state:
         for title, content in st.session_state.book.items():
             if st.button(f"Illustrate {title}", key=f"img_{title}"):
                 img_url = generate_image(content[:300], model_key=img_model)
                 if img_url:
                     st.image(img_url, caption=title, use_container_width=True)
-        if st.button("Cover Art"):
+        if st.button("Generate Book Cover"):
             cover = generate_cover(prompt, model_key=img_model)
             if cover:
                 st.image(cover, caption="Book Cover", use_container_width=True)
 
-with tabs[3]:
+with tabs[3]:  # Export
     if "book" in st.session_state:
-        if st.button("Export DOCX"):
-            path = export_docx(st.session_state.book)
-            st.download_button("Download DOCX", open(path, "rb"), file_name="book.docx")
-        if st.button("Export PDF"):
-            path = export_pdf(st.session_state.book)
-            st.download_button("Download PDF", open(path, "rb"), file_name="book.pdf")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("Export DOCX"):
+                path = export_docx(st.session_state.book)
+                st.download_button("Download DOCX", open(path, "rb"), file_name="book.docx")
+        with col2:
+            if st.button("Export PDF"):
+                path = export_pdf(st.session_state.book)
+                st.download_button("Download PDF", open(path, "rb"), file_name="book.pdf")
+        with col3:
+            st.download_button("Download JSON", json.dumps(st.session_state.book), file_name="book.json")
 
-with tabs[4]:
+with tabs[4]:  # Characters
+    st.subheader("Create & Visualize Characters")
     if st.button("Generate Characters"):
         chars = generate_characters(prompt, genre, TONE_MAP[tone], model)
-        for i, desc in enumerate(chars.split("\n\n")):
-            char_name = f"Character {i+1}"
-            st.session_state.characters[char_name] = desc
-        save_session_json()
-    for name, desc in st.session_state.characters.items():
-        with st.expander(name):
-            st.markdown(desc)
-            new_prompt = st.text_input(f"Adjust image for {name}", key=f"imgmod_{name}")
-            if st.button(f"Regenerate Image for {name}", key=f"regenimg_{name}"):
-                img_url = generate_image(desc + " " + new_prompt, model_key=img_model)
-                if img_url:
-                    st.image(img_url, caption=name, use_container_width=True)
+        st.text_area("Characters", chars, height=200)
+        st.session_state.characters = chars
 
-with tabs[5]:
+    if "characters" in st.session_state:
+        char_blocks = st.session_state.characters.split("\n\n")
+        for i, desc in enumerate(char_blocks):
+            with st.expander(f"Character {i+1}"):
+                st.markdown(desc)
+                edit_desc = st.text_area(f"Edit Description {i+1}", desc, key=f"edit_desc_{i}")
+                if st.button(f"Update Character {i+1}", key=f"save_char_{i}"):
+                    char_blocks[i] = edit_desc
+                    st.session_state.characters = "\n\n".join(char_blocks)
+                if st.button(f"Visualize {i+1}", key=f"viz_char_{i}"):
+                    url = generate_image(edit_desc, model_key=img_model)
+                    if url:
+                        st.image(url, caption=f"Character {i+1}", use_container_width=True)
+
+with tabs[5]:  # Feedback
+    st.subheader("Help us improve NarrativaX")
     with st.form("feedback_form"):
-        feedback = st.text_area("Suggestions, bugs or features you'd like?")
+        feedback = st.text_area("What would you like to see improved?")
         submitted = st.form_submit_button("Submit")
         if submitted:
             st.session_state.feedback_history.append(feedback)
-            st.success("Feedback received. AI will adapt accordingly.")
-            save_session_json()
+            st.success("Thank you! We'll adapt accordingly.")
+
     if st.session_state.feedback_history:
         st.markdown("### Past Feedback")
         for item in st.session_state.feedback_history[-5:]:
