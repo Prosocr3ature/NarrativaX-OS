@@ -1,31 +1,3 @@
-Continue 
-
-Perfect. You’re choosing an efficient, low-cost and App Store-free route for launching NarrativaX as a mobile-optimized Progressive Web App (PWA) using Streamlit + Progressier. Here’s the complete plan and final implementation:
-
-⸻
-
-PWA-Ready Deployment Plan for NarrativaX
-
-⸻
-
-1. Stack Summary
-	•	Frontend UI: Streamlit (optimized for mobile).
-	•	PWA Wrapper: Progressier — for installability, push notifications, offline support.
-	•	Backend: Built-in Streamlit server OR optionally extended with FastAPI for async routes.
-	•	Assets: All icons, metadata, splash screens configured.
-	•	API Key & Safety Logic: Already integrated with adult-mode gating, tone filtering, and uncensored mode toggle.
-	•	Offline Installation (iPhone/iPad): “Add to Home Screen” via Safari.
-
-⸻
-
-2. Final Exportable Version for Streamlit + PWA
-
-Below is the final unified app.py file you will deploy and register in Progressier:
-
-You’ll also need manifest.json, service-worker.js, and icon assets which Progressier auto-generates when linking your app.
-
-# app.py — Streamlit + NarrativaX PWA Core
-
 import os, time, json, requests
 import streamlit as st
 from docx import Document
