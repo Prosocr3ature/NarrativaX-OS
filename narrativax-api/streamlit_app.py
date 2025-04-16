@@ -6,7 +6,7 @@ from tempfile import NamedTemporaryFile
 from gtts import gTTS
 import replicate
 from streamlit_sortables import sort_items
-st.set_page_config(page_title="NarrativaX", page_icon="🪶", layout="
+st.set_page_config(page_title="NarrativaX", page_icon="🪶", layout="wide")
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
