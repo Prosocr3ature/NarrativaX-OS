@@ -1,7 +1,10 @@
-# Filename: narrativaX_app.py
+import streamlit as st  # already imported
 
+# This must come first
+st.set_page_config(page_title="NarrativaX", layout="wide")
+
+# Then the rest of your imports
 import os, time, json, requests
-import streamlit as st
 from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
