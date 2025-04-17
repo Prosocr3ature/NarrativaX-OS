@@ -1,1 +1,1 @@
-web: streamlit run narrativax-api/main.py
+web: cd narrativax-api && streamlit run main.py
