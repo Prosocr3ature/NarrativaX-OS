@@ -117,7 +117,7 @@ def narrate(text, id_key):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.image("https://i.imgur.com/vGV9N5k.png", width=180)
+    st.image("public/logo.png", width=180)
     st.markdown("### NarrativaX PWA")
     st.info("Safari → Dela → Lägg till på hemskärmen för att spara som app.")
     if st.button("Save Project"):
