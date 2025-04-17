@@ -4,15 +4,19 @@ from docx import Document
 from fpdf import FPDF
 from tempfile import NamedTemporaryFile
 from gtts import gTTS
+from PIL import Image
+import matplotlib.pyplot as plt
+from io import BytesIO
 import replicate
 from docx.shared import Inches
 
-# --- CONFIG ---
+# --- APP CONFIG ---
 st.set_page_config(page_title="NarrativaX", page_icon="🪶", layout="wide")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
+# --- GLOBALS ---
 TONE_MAP = {
     "Romantic": "sensual, romantic, literary",
     "Dark Romantic": "moody, passionate, emotional",
@@ -24,13 +28,16 @@ TONE_MAP = {
     "Gritty": "raw, realistic, street-style",
     "Slow Burn": "subtle, growing tension, emotional depth"
 }
+
 GENRES_NORMAL = [
     "Adventure", "Fantasy", "Dark Fantasy", "Romance", "Thriller", "Historical Fiction", "Mystery",
     "Drama", "Sci-Fi", "Slice of Life", "Teen Fiction", "Horror", "Cyberpunk", "Psychological", "Crime", "LGBTQ+", "Action", "Paranormal"
 ]
+
 GENRES_ADULT = [
     "Erotica", "NSFW", "Hardcore", "BDSM", "Yaoi", "Yuri", "Futanari", "Harem", "Incubus/Succubus", "Kinky Comedy", "Taboo Fantasy"
 ]
+
 GENRES = GENRES_NORMAL + GENRES_ADULT
 VOICES = {"Rachel": "default", "Bella": "default", "Antoni": "default", "Elli": "default", "Josh": "default"}
 MODELS = [
@@ -40,6 +47,7 @@ MODELS = [
     "nousresearch/nous-capybara-7b",
     "cognitivecomputations/dolphin-mixtral"
 ]
+
 IMAGE_MODELS = {
     "Realistic Vision v5.1": "lucataco/realistic-vision-v5.1:2c8e954decbf70b7607a4414e5785ef9e4de4b8c51d50fb8b8b349160e0ef6bb",
     "Reliberate V3 (NSFW)": "asiryan/reliberate-v3:d70438fcb9bb7adb8d6e59cf236f754be0b77625e984b8595d1af02cdf034b29"
@@ -52,14 +60,15 @@ def init_state():
         "book": {}, "outline": "", "characters": [], "prompt": "",
         "genre": "", "tone": "", "adult_confirmed": False,
         "chapter_order": [], "image_cache": {}, "audio_cache": {},
-        "img_model": "", "book_title": "", "custom_title": "", "tagline": "", "cover_image": None
+        "img_model": "", "book_title": "", "custom_title": "", "tagline": "",
+        "cover_image": None, "regenerate_mode": "Preview"
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 init_state()
 
-# --- SAFETY + LOGIK ---
+# --- SAFETY ---
 def is_adult_mode():
     return st.session_state.genre in GENRES_ADULT or st.session_state.tone in ["NSFW", "Hardcore", "BDSM"]
 
@@ -70,7 +79,7 @@ def require_adult_confirmation():
             st.session_state.adult_confirmed = True
             st.experimental_rerun()
 
-# --- API FUNKTIONER ---
+# --- API CALLS ---
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -81,7 +90,8 @@ def call_openrouter(prompt, model, max_tokens=1800):
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.95, "max_tokens": max_tokens
+        "temperature": 0.95,
+        "max_tokens": max_tokens
     }
     r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
     r.raise_for_status()
@@ -95,7 +105,6 @@ def generate_outline(prompt, genre, tone, chapters, model):
 def generate_section(title, outline, model):
     return call_openrouter(f"Write section '{title}' in full based on this outline:\n{outline}", model)
 
-# ✅ FIXAD FUNKTION: generate_characters()
 def generate_characters(outline, genre, tone, model):
     prompt = f"""Create a list of characters for a {tone} {genre} novel based on the outline below. 
     For each, return JSON: name, role, personality, appearance.
@@ -131,7 +140,7 @@ def narrate(text, id_key):
 # --- SIDEBAR ---
 with st.sidebar:
     st.image("https://i.imgur.com/vGV9N5k.png", width=180)
-    st.markdown("**NarrativaX 5.0** — AI Book Studio")
+    st.markdown("**NarrativaX 5.2** — AI Book Studio")
     if st.button("Save Project"):
         json.dump(st.session_state.book, open("session.json", "w"))
         st.success("Project saved.")
@@ -152,10 +161,15 @@ with st.sidebar:
 # --- MAIN UI ---
 st.title("NarrativaX — AI Book Studio")
 
-# Visa omslag
-if st.session_state.cover_image:
-    st.image(st.session_state.cover_image, caption=f"**{st.session_state.book_title}**\n{st.session_state.tagline}", use_column_width=True)
-    st.download_button("Download Cover", requests.get(st.session_state.cover_image).content, file_name="cover.jpg")
+# --- COVER DISPLAY ---
+cover_url = st.session_state.cover_image
+if cover_url:
+    try:
+        st.image(cover_url, caption=f"**{st.session_state.book_title}**\n{st.session_state.tagline}", use_container_width=True)
+    except:
+        st.warning("Could not display cover image.")
+else:
+    st.info("No cover image generated yet.")
 
 # --- SETTINGS ---
 with st.expander("Book Settings", expanded=True):
@@ -170,6 +184,7 @@ with st.expander("Book Settings", expanded=True):
     st.session_state.img_model = st.selectbox("Image Model", list(IMAGE_MODELS if is_adult_mode() else SAFE_IMAGE_MODELS))
     st.session_state.custom_title = st.text_input("Custom Title (optional)", "")
     st.session_state.tagline = st.text_input("Tagline (optional)", "")
+    st.session_state.regenerate_mode = st.radio("Regenerate Mode", ["Preview", "Instant"], horizontal=True)
 
 # --- CREATE FULL BOOK ---
 if st.button("Create Full Book"):
@@ -190,7 +205,6 @@ if st.button("Create Full Book"):
                 model
             )
 
-            # Bokomslag
             title_line = next((line for line in st.session_state.outline.splitlines() if "Title:" in line), None)
             raw_title = title_line.replace("Title:", "").strip() if title_line else "Untitled"
             st.session_state.book_title = st.session_state.custom_title or raw_title
@@ -209,12 +223,9 @@ if st.button("Create Full Book"):
             st.session_state.book = book
             st.success("Done!")
 
-# --- VISA BOK ---
+# --- DISPLAY BOOK TABS ---
 if st.session_state.book:
-    tab_titles = st.session_state.chapter_order + ["Characters"]
-    active_index = next((i for i, t in enumerate(tab_titles) if t == st.session_state.get("jump_to_chapter")), 0)
-    tabs = st.tabs(tab_titles)
-
+    tabs = st.tabs(st.session_state.chapter_order + ["Characters"])
     for i, title in enumerate(st.session_state.chapter_order):
         with tabs[i]:
             st.subheader(title)
@@ -223,88 +234,110 @@ if st.session_state.book:
             img_url = st.session_state.image_cache.get(title)
             if img_url:
                 try:
-                    st.image(img_url, caption=f"{title} Illustration")
+                    st.image(img_url, caption=f"{title} Illustration", use_container_width=True)
                 except:
-                    st.warning("Failed to display image.")
-            else:
-                st.info("No illustration for this chapter.")
+                    st.warning("Could not display illustration.")
 
             if st.button(f"Read Aloud: {title}", key=f"tts_{title}"):
-                mp3 = narrate(st.session_state.book[title], title)
-                st.audio(mp3)
+                audio = narrate(st.session_state.book[title], title)
+                st.audio(audio)
 
-# --- EXPORT ---
-st.header("Export")
-pdf_mode = st.radio("PDF Export Mode", ["Include Chapter Images", "Text Only"], horizontal=True)
-col1, col2, col3 = st.columns(3)
+            if st.button(f"Regenerate: {title}", key=f"regen_{title}"):
+                new_text = generate_section(title, st.session_state.outline, model)
+                if st.session_state.regenerate_mode == "Preview":
+                    with st.expander("Preview New Version", expanded=True):
+                        st.markdown("### New Version")
+                        st.text_area("Preview", value=new_text, height=300)
+                        col1, col2 = st.columns(2)
+                        if col1.button("Replace with New", key=f"confirm_{title}"):
+                            st.session_state.book[title] = new_text
+                            st.success(f"{title} updated.")
+                        if col2.button("Cancel", key=f"cancel_{title}"):
+                            st.info("No changes made.")
+                else:
+                    st.session_state.book[title] = new_text
+                    st.success(f"{title} regenerated.")
 
-with col1:
-    if st.button("Export DOCX"):
-        doc = Document()
-        try:
-            if st.session_state.cover_image:
-                doc.add_picture(requests.get(st.session_state.cover_image, stream=True).raw, width=Inches(5.5))
-        except:
-            doc.add_paragraph("[Cover image failed to load]")
+    # --- CHARACTERS TAB ---
+    with tabs[-1]:
+        st.subheader("Character Gallery")
 
-        doc.add_paragraph(st.session_state.book_title).bold = True
-        doc.add_paragraph(st.session_state.tagline)
+        # Lägg till ny karaktär
+        if st.button("➕ Add New Character"):
+            st.session_state.characters.append({
+                "name": "New",
+                "role": "Extra",
+                "personality": "",
+                "appearance": "",
+                "type": "Supporting",
+                "relations": ""
+            })
 
-        for t, txt in st.session_state.book.items():
-            doc.add_heading(t, level=1)
-            doc.add_paragraph(txt)
-        f = NamedTemporaryFile(delete=False, suffix=".docx")
-        doc.save(f.name)
-        st.download_button("Download DOCX", open(f.name, "rb"), file_name="NarrativaX_Book.docx")
+        # Sök + filter
+        search = st.text_input("Search characters...", "").lower()
+        role_filter = st.selectbox("Filter by Type", ["All"] + list(set(c.get("type", "") for c in st.session_state.characters)))
 
-with col2:
-    if st.button("Export PDF"):
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
+        # Visa tabell
+        filtered = [
+            c for c in st.session_state.characters
+            if (search in c['name'].lower() or search in c['role'].lower()) and
+               (role_filter == "All" or c.get("type") == role_filter)
+        ]
+        edited = st.data_editor(filtered, num_rows="dynamic", use_container_width=True, key="char_editor")
+        st.session_state.characters = edited
 
-        # Cover
-        try:
-            if st.session_state.cover_image:
-                image_url = st.session_state.cover_image
-                image_path = "cover.jpg"
-                with open(image_path, "wb") as f:
-                    f.write(requests.get(image_url).content)
-                pdf.image(image_path, w=180)
-                pdf.ln(10)
-        except:
-            pdf.set_font("Arial", size=10)
-            pdf.cell(0, 10, "[Cover image could not be loaded]", ln=True)
+        # Porträttvisning
+        st.markdown("### Portrait Gallery")
+        portrait_cols = st.columns(3)
+        images = []
+        for idx, char in enumerate(edited):
+            with portrait_cols[idx % 3]:
+                st.markdown(f"**{char['name']}** — *{char['role']}*")
+                prompt = st.text_input("Portrait prompt", char.get("appearance", ""), key=f"imgprompt_{idx}")
+                if st.button("Generate Portrait", key=f"portrait_btn_{idx}"):
+                    url = generate_image(prompt, st.session_state.img_model, f"char_{idx}")
+                    st.image(url, caption=char['name'], use_container_width=True)
+                    images.append((char['name'], url))
 
-        for title in st.session_state.chapter_order:
-            # Chapter image
-            image_url = st.session_state.image_cache.get(title)
-            if pdf_mode == "Include Chapter Images" and image_url:
-                try:
-                    image_path = f"{title.replace(' ', '_')}.jpg"
-                    with open(image_path, "wb") as f:
-                        f.write(requests.get(image_url).content)
-                    pdf.image(image_path, w=170)
-                except:
-                    pdf.set_font("Arial", size=10)
-                    pdf.cell(0, 10, f"[Image for {title} could not be loaded]", ln=True)
+        # Export karaktärer
+        st.markdown("### Export Characters")
+        col1, col2, col3 = st.columns(3)
 
-            pdf.set_font("Arial", style="B", size=14)
-            pdf.cell(200, 10, title, ln=True)
-            pdf.set_font("Arial", size=12)
-            for line in st.session_state.book[title].splitlines():
-                pdf.multi_cell(0, 10, line)
+        with col1:
+            st.download_button("Download JSON", json.dumps(st.session_state.characters), file_name="characters.json")
 
-        f = NamedTemporaryFile(delete=False, suffix=".pdf")
-        name = "NarrativaX_Book_Images.pdf" if pdf_mode == "Include Chapter Images" else "NarrativaX_Book_TextOnly.pdf"
-        st.download_button("Download PDF", open(f.name, "rb"), file_name=name)
+        with col2:
+            try:
+                from pandas import DataFrame
+                df = DataFrame(st.session_state.characters)
+                fig, ax = plt.subplots(figsize=(10, len(df)*0.5))
+                ax.axis('off')
+                tbl = ax.table(cellText=df.values, colLabels=df.columns, loc='center')
+                buf = BytesIO()
+                plt.savefig(buf, format='png', bbox_inches='tight')
+                buf.seek(0)
+                st.download_button("Export Table PNG", data=buf, file_name="characters_table.png", mime="image/png")
+            except Exception as e:
+                st.warning("PNG export failed.")
 
-with col3:
-    if st.button("Export JSON"):
-        j = json.dumps(st.session_state.book)
-        st.download_button("Download JSON", j, file_name="NarrativaX_Book.json")
+        with col3:
+            if st.button("Download Portrait Collage (PNG)"):
+                if images:
+                    cols = 3
+                    size = (256, 256)
+                    imgs = [Image.open(BytesIO(requests.get(url).content)).resize(size) for _, url in images]
+                    rows = (len(imgs) + cols - 1) // cols
+                    collage = Image.new("RGB", (size[0]*cols, size[1]*rows))
+                    for idx, img in enumerate(imgs):
+                        x, y = (idx % cols) * size[0], (idx // cols) * size[1]
+                        collage.paste(img, (x, y))
+                    out = BytesIO()
+                    collage.save(out, format="PNG")
+                    out.seek(0)
+                    st.download_button("Download Collage", data=out, file_name="character_collage.png", mime="image/png")
+                else:
+                    st.info("No portraits yet.")
 
 # --- FOOTER ---
 st.markdown("---")
-st.caption("© 2025 NarrativaX | Built with AI and imagination.")
+st.caption("© 2025 NarrativaX | Powered by imagination & AI.")
