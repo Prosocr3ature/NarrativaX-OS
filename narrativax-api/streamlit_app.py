@@ -8,15 +8,14 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from io import BytesIO
 import replicate
+import pandas as pd
 from docx.shared import Inches
 
-# --- APP CONFIG ---
 st.set_page_config(page_title="NarrativaX", page_icon="🪶", layout="wide")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-# --- GLOBALS ---
 TONE_MAP = {
     "Romantic": "sensual, romantic, literary",
     "Dark Romantic": "moody, passionate, emotional",
@@ -54,7 +53,6 @@ IMAGE_MODELS = {
 }
 SAFE_IMAGE_MODELS = {k: v for k, v in IMAGE_MODELS.items() if "NSFW" not in k}
 
-# --- INIT STATE ---
 def init_state():
     defaults = {
         "book": {}, "outline": "", "characters": [], "prompt": "",
@@ -68,7 +66,6 @@ def init_state():
             st.session_state[k] = v
 init_state()
 
-# --- SAFETY ---
 def is_adult_mode():
     return st.session_state.genre in GENRES_ADULT or st.session_state.tone in ["NSFW", "Hardcore", "BDSM"]
 
@@ -79,7 +76,6 @@ def require_adult_confirmation():
             st.session_state.adult_confirmed = True
             st.experimental_rerun()
 
-# --- API CALLS ---
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -118,29 +114,11 @@ def generate_characters(outline, genre, tone, model):
         st.warning("Could not parse characters. Showing raw format.")
         return [{"name": "Unnamed", "role": "Unknown", "personality": response, "appearance": ""}]
 
-def generate_image(prompt, model_key, id_key):
-    if is_adult_mode() and not st.session_state.adult_confirmed:
-        require_adult_confirmation()
-    if id_key in st.session_state.image_cache:
-        return st.session_state.image_cache[id_key]
-    model = IMAGE_MODELS[model_key]
-    args = {"prompt": prompt[:300], "num_inference_steps": 30, "guidance_scale": 7.5, "width": 768, "height": 1024}
-    image_url = replicate_client.run(model, input=args)[0]
-    st.session_state.image_cache[id_key] = image_url
-    return image_url
-
-def narrate(text, id_key):
-    if id_key in st.session_state.audio_cache:
-        return st.session_state.audio_cache[id_key]
-    filename = f"{id_key}.mp3"
-    gTTS(text.replace("\n", " ")).save(filename)
-    st.session_state.audio_cache[id_key] = filename
-    return filename
-
 # --- SIDEBAR ---
 with st.sidebar:
     st.image("https://i.imgur.com/vGV9N5k.png", width=180)
-    st.markdown("**NarrativaX 5.2** — AI Book Studio")
+    st.markdown("### NarrativaX PWA")
+    st.info("Safari → Dela → Lägg till på hemskärmen för att spara som app.")
     if st.button("Save Project"):
         json.dump(st.session_state.book, open("session.json", "w"))
         st.success("Project saved.")
@@ -163,13 +141,13 @@ st.title("NarrativaX — AI Book Studio")
 
 # --- COVER DISPLAY ---
 cover_url = st.session_state.cover_image
-if cover_url:
+if cover_url and isinstance(cover_url, str) and cover_url.startswith("http"):
     try:
         st.image(cover_url, caption=f"**{st.session_state.book_title}**\n{st.session_state.tagline}", use_container_width=True)
     except:
         st.warning("Could not display cover image.")
 else:
-    st.info("No cover image generated yet.")
+    st.info("No valid cover image available.")
 
 # --- SETTINGS ---
 with st.expander("Book Settings", expanded=True):
@@ -204,7 +182,6 @@ if st.button("Create Full Book"):
                 TONE_MAP[st.session_state.tone],
                 model
             )
-
             title_line = next((line for line in st.session_state.outline.splitlines() if "Title:" in line), None)
             raw_title = title_line.replace("Title:", "").strip() if title_line else "Untitled"
             st.session_state.book_title = st.session_state.custom_title or raw_title
@@ -218,10 +195,8 @@ if st.button("Create Full Book"):
             for section in sections:
                 st.info(f"Writing {section}...")
                 book[section] = generate_section(section, st.session_state.outline, model)
-                img_prompt = f"Illustration for section '{section}': {book[section][:300]}"
-                st.session_state.image_cache[section] = generate_image(img_prompt, st.session_state.img_model, section)
             st.session_state.book = book
-            st.success("Done!")
+            st.success("Book created! You can now generate illustrations.")
 
 # --- DISPLAY BOOK TABS ---
 if st.session_state.book:
@@ -231,17 +206,25 @@ if st.session_state.book:
             st.subheader(title)
             st.markdown(st.session_state.book[title])
 
+            # Illustration (efter boken)
             img_url = st.session_state.image_cache.get(title)
             if img_url:
                 try:
                     st.image(img_url, caption=f"{title} Illustration", use_container_width=True)
                 except:
                     st.warning("Could not display illustration.")
+            else:
+                if st.button(f"Generate Illustration for {title}", key=f"img_gen_{title}"):
+                    prompt = f"Illustration for section '{title}': {st.session_state.book[title][:300]}"
+                    img_url = generate_image(prompt, st.session_state.img_model, title)
+                    st.image(img_url, caption=f"{title} Illustration", use_container_width=True)
 
+            # Narration
             if st.button(f"Read Aloud: {title}", key=f"tts_{title}"):
                 audio = narrate(st.session_state.book[title], title)
                 st.audio(audio)
 
+            # Regenerering (preview eller instant)
             if st.button(f"Regenerate: {title}", key=f"regen_{title}"):
                 new_text = generate_section(title, st.session_state.outline, model)
                 if st.session_state.regenerate_mode == "Preview":
@@ -258,35 +241,33 @@ if st.session_state.book:
                     st.session_state.book[title] = new_text
                     st.success(f"{title} regenerated.")
 
+
     # --- CHARACTERS TAB ---
     with tabs[-1]:
         st.subheader("Character Gallery")
 
-        # Lägg till ny karaktär
         if st.button("➕ Add New Character"):
             st.session_state.characters.append({
-                "name": "New",
-                "role": "Extra",
+                "name": "New Character",
+                "role": "Unknown",
                 "personality": "",
                 "appearance": "",
                 "type": "Supporting",
                 "relations": ""
             })
 
-        # Sök + filter
         search = st.text_input("Search characters...", "").lower()
         role_filter = st.selectbox("Filter by Type", ["All"] + list(set(c.get("type", "") for c in st.session_state.characters)))
 
-        # Visa tabell
         filtered = [
             c for c in st.session_state.characters
-            if (search in c['name'].lower() or search in c['role'].lower()) and
-               (role_filter == "All" or c.get("type") == role_filter)
+            if (search in c['name'].lower() or search in c['role'].lower())
+            and (role_filter == "All" or c.get("type") == role_filter)
         ]
+
         edited = st.data_editor(filtered, num_rows="dynamic", use_container_width=True, key="char_editor")
         st.session_state.characters = edited
 
-        # Porträttvisning
         st.markdown("### Portrait Gallery")
         portrait_cols = st.columns(3)
         images = []
@@ -294,12 +275,11 @@ if st.session_state.book:
             with portrait_cols[idx % 3]:
                 st.markdown(f"**{char['name']}** — *{char['role']}*")
                 prompt = st.text_input("Portrait prompt", char.get("appearance", ""), key=f"imgprompt_{idx}")
-                if st.button("Generate Portrait", key=f"portrait_btn_{idx}"):
+                if st.button("Generate Portrait", key=f"charportrait_{idx}"):
                     url = generate_image(prompt, st.session_state.img_model, f"char_{idx}")
                     st.image(url, caption=char['name'], use_container_width=True)
                     images.append((char['name'], url))
 
-        # Export karaktärer
         st.markdown("### Export Characters")
         col1, col2, col3 = st.columns(3)
 
@@ -308,8 +288,7 @@ if st.session_state.book:
 
         with col2:
             try:
-                from pandas import DataFrame
-                df = DataFrame(st.session_state.characters)
+                df = pd.DataFrame(st.session_state.characters)
                 fig, ax = plt.subplots(figsize=(10, len(df)*0.5))
                 ax.axis('off')
                 tbl = ax.table(cellText=df.values, colLabels=df.columns, loc='center')
@@ -318,7 +297,7 @@ if st.session_state.book:
                 buf.seek(0)
                 st.download_button("Export Table PNG", data=buf, file_name="characters_table.png", mime="image/png")
             except Exception as e:
-                st.warning("PNG export failed.")
+                st.warning("Failed to export character table.")
 
         with col3:
             if st.button("Download Portrait Collage (PNG)"):
@@ -340,4 +319,4 @@ if st.session_state.book:
 
 # --- FOOTER ---
 st.markdown("---")
-st.caption("© 2025 NarrativaX | Powered by imagination & AI.")
+st.caption("© 2025 NarrativaX | Built with AI and imagination.")
