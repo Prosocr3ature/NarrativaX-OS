@@ -39,7 +39,6 @@ IMAGE_MODELS = {
 }
 SAFE_IMAGE_MODELS = {k: v for k, v in IMAGE_MODELS.items() if "NSFW" not in k}
 
-# --- INIT STATE ---
 def init_state():
     defaults = {
         "book": {}, "outline": "", "characters": [], "prompt": "",
@@ -53,7 +52,6 @@ def init_state():
             st.session_state[k] = v
 init_state()
 
-# --- SAFETY ---
 def is_adult_mode():
     return st.session_state.genre in GENRES_ADULT or st.session_state.tone in TONE_MAP and "NSFW" in TONE_MAP[st.session_state.tone]
 
@@ -65,7 +63,6 @@ def require_adult_confirmation():
             st.session_state.adult_confirmed = True
             st.experimental_rerun()
 
-# --- API CALLS ---
 def call_openrouter(prompt, model, max_tokens=1800):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -161,14 +158,14 @@ with st.expander("Book Settings", expanded=True):
     st.session_state.tagline = st.text_input("Tagline (optional)", "")
     st.session_state.regenerate_mode = st.radio("Regenerate Mode", ["Preview", "Instant"], horizontal=True)
 
-# --- CREATE FULL BOOK BUTTON ---
+# --- CREATE FULL BOOK ---
 if st.button("Create Full Book"):
     if is_adult_mode() and not st.session_state.adult_confirmed:
         st.session_state.want_to_generate = True
         require_adult_confirmation()
     else:
         st.session_state.want_to_generate = False
-        st.session_state.book = {}  # reset
+        st.session_state.book = {}
 
         with st.spinner("Creating outline and characters..."):
             st.session_state.outline = generate_outline(
@@ -197,12 +194,13 @@ if st.button("Create Full Book"):
                 st.info(f"Writing {section}...")
                 book[section] = generate_section(section, st.session_state.outline, model)
             st.session_state.book = book
-            st.success("Book created! You can now generate illustrations.")
+            st.success("Book created!")
 
-# --- POST-18+ TRIGGER ---
+# --- Trigger if 18+ was just confirmed
 if st.session_state.adult_confirmed and st.session_state.want_to_generate:
     st.session_state.want_to_generate = False
     st.experimental_rerun()
+
 
 # --- DISPLAY BOOK TABS ---
 if st.session_state.book:
@@ -230,7 +228,7 @@ if st.session_state.book:
                 audio = narrate(st.session_state.book[title], title)
                 st.audio(audio)
 
-            # Regenerering
+            # Regenerering (Preview eller Instant)
             if st.button(f"Regenerate: {title}", key=f"regen_{title}"):
                 new_text = generate_section(title, st.session_state.outline, model)
                 if st.session_state.regenerate_mode == "Preview":
@@ -247,7 +245,8 @@ if st.session_state.book:
                     st.session_state.book[title] = new_text
                     st.success(f"{title} regenerated.")
 
-                  # --- CHARACTERS TAB ---
+
+    # --- CHARACTERS TAB ---
     with tabs[-1]:
         st.subheader("Character Gallery")
 
