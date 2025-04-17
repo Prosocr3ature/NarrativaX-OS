@@ -1,21 +1,23 @@
 {
   "name": "NarrativaX",
   "short_name": "NarrativaX",
+  "description": "The AI Operating System for books",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#d33682",
-  "description": "Create AI-generated books with portraits, narration, and illustrations.",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "public/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
+      "src": "/public/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
     },
     {
-      "src": "public/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "/public/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
     }
-  ]
+  ],
+  "splash_pages": null
 }
