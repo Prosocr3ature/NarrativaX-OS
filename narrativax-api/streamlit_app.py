@@ -59,21 +59,16 @@ def init_state():
             st.session_state[k] = v
 init_state()
 
-# --- SAFETY ---
+# --- SAFETY + LOGIK ---
 def is_adult_mode():
     return st.session_state.genre in GENRES_ADULT or st.session_state.tone in ["NSFW", "Hardcore", "BDSM"]
 
 def require_adult_confirmation():
-    if not st.session_state.adult_confirmed:
-        with st.expander("⚠️ Adult Content", expanded=True):
-            st.error("This content may contain mature or explicit material.")
-            if st.button("I confirm I'm 18+"):
-                st.session_state.adult_confirmed = True
-            st.stop()
-
-def check_adult_flag():
-    if is_adult_mode() and not st.session_state.adult_confirmed:
-        require_adult_confirmation()
+    with st.expander("⚠️ Adult Content", expanded=True):
+        st.error("This content may contain mature or explicit material.")
+        if st.button("I confirm I'm 18+"):
+            st.session_state.adult_confirmed = True
+            st.experimental_rerun()
 
 # --- API FUNKTIONER ---
 def call_openrouter(prompt, model, max_tokens=1800):
@@ -114,7 +109,8 @@ def generate_characters(outline, genre, tone, model):
         return [{"name": "Unnamed", "role": "Unknown", "personality": response, "appearance": ""}]
 
 def generate_image(prompt, model_key, id_key):
-    check_adult_flag()
+    if is_adult_mode() and not st.session_state.adult_confirmed:
+        require_adult_confirmation()
     if id_key in st.session_state.image_cache:
         return st.session_state.image_cache[id_key]
     model = IMAGE_MODELS[model_key]
@@ -175,31 +171,43 @@ with st.expander("Book Settings", expanded=True):
     st.session_state.custom_title = st.text_input("Custom Title (optional)", "")
     st.session_state.tagline = st.text_input("Tagline (optional)", "")
 
-# --- GENERATE BOOK ---
+# --- CREATE FULL BOOK (FIXED 18+)
 if st.button("Create Full Book"):
-    check_adult_flag()
-    with st.spinner("Creating outline and characters..."):
-        st.session_state.outline = generate_outline(st.session_state.prompt, st.session_state.genre, TONE_MAP[st.session_state.tone], chapters, model)
-        st.session_state.characters = generate_characters(st.session_state.outline, st.session_state.genre, TONE_MAP[st.session_state.tone], model)
+    if is_adult_mode() and not st.session_state.adult_confirmed:
+        require_adult_confirmation()
+    else:
+        with st.spinner("Creating outline and characters..."):
+            st.session_state.outline = generate_outline(
+                st.session_state.prompt,
+                st.session_state.genre,
+                TONE_MAP[st.session_state.tone],
+                chapters, model
+            )
+            st.session_state.characters = generate_characters(
+                st.session_state.outline,
+                st.session_state.genre,
+                TONE_MAP[st.session_state.tone],
+                model
+            )
 
-        # Bokomslag
-        title_line = next((line for line in st.session_state.outline.splitlines() if "Title:" in line), None)
-        raw_title = title_line.replace("Title:", "").strip() if title_line else "Untitled"
-        st.session_state.book_title = st.session_state.custom_title or raw_title
-        cover_prompt = f"{st.session_state.book_title}, {st.session_state.genre}, {st.session_state.tone}, book cover, centered, cinematic, ultra detailed"
-        st.session_state.cover_image = generate_image(cover_prompt, st.session_state.img_model, "cover")
+            # Bokomslag
+            title_line = next((line for line in st.session_state.outline.splitlines() if "Title:" in line), None)
+            raw_title = title_line.replace("Title:", "").strip() if title_line else "Untitled"
+            st.session_state.book_title = st.session_state.custom_title or raw_title
+            cover_prompt = f"{st.session_state.book_title}, {st.session_state.genre}, {st.session_state.tone}, book cover, centered, cinematic, ultra detailed"
+            st.session_state.cover_image = generate_image(cover_prompt, st.session_state.img_model, "cover")
 
-    with st.spinner("Writing full book..."):
-        book = {}
-        sections = ["Foreword", "Introduction"] + [f"Chapter {i+1}" for i in range(chapters)] + ["Final Words"]
-        st.session_state.chapter_order = sections
-        for section in sections:
-            st.info(f"Writing {section}...")
-            book[section] = generate_section(section, st.session_state.outline, model)
-            img_prompt = f"Illustration for section '{section}': {book[section][:300]}"
-            st.session_state.image_cache[section] = generate_image(img_prompt, st.session_state.img_model, section)
-        st.session_state.book = book
-        st.success("Done!")
+        with st.spinner("Writing full book..."):
+            book = {}
+            sections = ["Foreword", "Introduction"] + [f"Chapter {i+1}" for i in range(chapters)] + ["Final Words"]
+            st.session_state.chapter_order = sections
+            for section in sections:
+                st.info(f"Writing {section}...")
+                book[section] = generate_section(section, st.session_state.outline, model)
+                img_prompt = f"Illustration for section '{section}': {book[section][:300]}"
+                st.session_state.image_cache[section] = generate_image(img_prompt, st.session_state.img_model, section)
+            st.session_state.book = book
+            st.success("Done!")
 
 # --- VISA BOK ---
 if st.session_state.book:
@@ -216,7 +224,12 @@ if st.session_state.book:
             if st.button(f"Read Aloud: {title}", key=f"tts_{title}"):
                 mp3 = narrate(st.session_state.book[title], title)
                 st.audio(mp3)
-    # --- KARAKTÄRER ---
+
+# Rensa sidmeny-navigation
+if "jump_to_chapter" in st.session_state:
+    del st.session_state["jump_to_chapter"]
+
+    # --- CHARACTERS TAB ---
     with tabs[-1]:
         st.subheader("Character Gallery")
 
@@ -316,10 +329,6 @@ with col3:
         j = json.dumps(st.session_state.book)
         st.download_button("Download JSON", j, file_name="NarrativaX_Book.json")
 
-# --- CLEAR JUMP ---
-if "jump_to_chapter" in st.session_state:
-    del st.session_state["jump_to_chapter"]
-
 # --- FOOTER ---
 st.markdown("---")
-st.caption("© 2025 NarrativaX | AI storytelling without limits.")
+st.caption("© 2025 NarrativaX | Built with AI and imagination.")
