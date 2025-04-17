@@ -219,52 +219,19 @@ if st.session_state.book:
         with tabs[i]:
             st.subheader(title)
             st.markdown(st.session_state.book[title])
-            if title in st.session_state.image_cache:
-                st.image(st.session_state.image_cache[title], caption=f"{title} Illustration")
+
+            img_url = st.session_state.image_cache.get(title)
+            if img_url:
+                try:
+                    st.image(img_url, caption=f"{title} Illustration")
+                except:
+                    st.warning("Failed to display image.")
+            else:
+                st.info("No illustration for this chapter.")
+
             if st.button(f"Read Aloud: {title}", key=f"tts_{title}"):
                 mp3 = narrate(st.session_state.book[title], title)
                 st.audio(mp3)
-
-# Rensa sidmeny-navigation
-if "jump_to_chapter" in st.session_state:
-    del st.session_state["jump_to_chapter"]
-
-    # --- CHARACTERS TAB ---
-    with tabs[-1]:
-        st.subheader("Character Gallery")
-
-        # Sök + filter
-        search_query = st.text_input("Search by name, role or traits...", "").lower()
-        all_roles = list({c['role'] for c in st.session_state.characters})
-        role_filter = st.selectbox("Filter by Role", ["All"] + sorted(all_roles))
-
-        filtered_chars = [
-            c for c in st.session_state.characters
-            if (search_query in c['name'].lower()
-                or search_query in c['role'].lower()
-                or search_query in c['personality'].lower()
-                or search_query in c['appearance'].lower())
-            and (role_filter == "All" or c['role'] == role_filter)
-        ]
-
-        edited = st.data_editor(
-            filtered_chars,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="char_table"
-        )
-        st.session_state.characters = edited
-
-        for i, char in enumerate(edited):
-            with st.expander(f"{char['name']} — {char['role']}"):
-                prompt = st.text_input("Portrait prompt", f"{char['appearance']}, portrait", key=f"imgprompt_{i}")
-                if st.button(f"Generate Portrait", key=f"charportrait_{i}"):
-                    img = generate_image(prompt, st.session_state.img_model, f"char_{i}")
-                    st.image(img, caption=char['name'])
-                    image_path = f"{char['name'].replace(' ', '_')}_portrait.jpg"
-                    with open(image_path, "wb") as f:
-                        f.write(requests.get(img).content)
-                        st.download_button(f"Download {char['name']}", open(f.name, "rb"), file_name=image_path)
 
 # --- EXPORT ---
 st.header("Export")
@@ -274,10 +241,15 @@ col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("Export DOCX"):
         doc = Document()
-        if st.session_state.cover_image:
-            doc.add_picture(requests.get(st.session_state.cover_image, stream=True).raw, width=Inches(5.5))
-            doc.add_paragraph(st.session_state.book_title).bold = True
-            doc.add_paragraph(st.session_state.tagline)
+        try:
+            if st.session_state.cover_image:
+                doc.add_picture(requests.get(st.session_state.cover_image, stream=True).raw, width=Inches(5.5))
+        except:
+            doc.add_paragraph("[Cover image failed to load]")
+
+        doc.add_paragraph(st.session_state.book_title).bold = True
+        doc.add_paragraph(st.session_state.tagline)
+
         for t, txt in st.session_state.book.items():
             doc.add_heading(t, level=1)
             doc.add_paragraph(txt)
@@ -292,27 +264,31 @@ with col2:
         pdf.add_page()
         pdf.set_font("Arial", size=12)
 
-        if st.session_state.cover_image:
-            image_url = st.session_state.cover_image
-            image_path = "cover.jpg"
-            with open(image_path, "wb") as f:
-                f.write(requests.get(image_url).content)
-            try:
-                pdf.image(image_path, w=180)
-                pdf.ln(10)
-            except:
-                pass
-
-        for title in st.session_state.chapter_order:
-            if pdf_mode == "Include Chapter Images" and title in st.session_state.image_cache:
-                image_url = st.session_state.image_cache[title]
-                image_path = f"{title.replace(' ', '_')}.jpg"
+        # Cover
+        try:
+            if st.session_state.cover_image:
+                image_url = st.session_state.cover_image
+                image_path = "cover.jpg"
                 with open(image_path, "wb") as f:
                     f.write(requests.get(image_url).content)
+                pdf.image(image_path, w=180)
+                pdf.ln(10)
+        except:
+            pdf.set_font("Arial", size=10)
+            pdf.cell(0, 10, "[Cover image could not be loaded]", ln=True)
+
+        for title in st.session_state.chapter_order:
+            # Chapter image
+            image_url = st.session_state.image_cache.get(title)
+            if pdf_mode == "Include Chapter Images" and image_url:
                 try:
+                    image_path = f"{title.replace(' ', '_')}.jpg"
+                    with open(image_path, "wb") as f:
+                        f.write(requests.get(image_url).content)
                     pdf.image(image_path, w=170)
                 except:
-                    pass
+                    pdf.set_font("Arial", size=10)
+                    pdf.cell(0, 10, f"[Image for {title} could not be loaded]", ln=True)
 
             pdf.set_font("Arial", style="B", size=14)
             pdf.cell(200, 10, title, ln=True)
