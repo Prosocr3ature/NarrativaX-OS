@@ -95,10 +95,11 @@ def generate_outline(prompt, genre, tone, chapters, model):
 def generate_section(title, outline, model):
     return call_openrouter(f"Write section '{title}' in full based on this outline:\n{outline}", model)
 
+# ✅ FIXAD FUNKTION: generate_characters()
 def generate_characters(outline, genre, tone, model):
     prompt = f"""Create a list of characters for a {tone} {genre} novel based on the outline below. 
     For each, return JSON: name, role, personality, appearance.
-    Output format: [{"name": "X", "role": "Y", "personality": "...", "appearance": "..."}]
+    Output format: [{{"name": "X", "role": "Y", "personality": "...", "appearance": "..."}}]
     
     Outline: {outline}"""
     response = call_openrouter(prompt, model)
@@ -142,7 +143,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Load failed: {e}")
 
-    # Kapitelöversikt
     if st.session_state.chapter_order:
         st.markdown("### Chapters")
         for i, ch in enumerate(st.session_state.chapter_order):
@@ -171,7 +171,7 @@ with st.expander("Book Settings", expanded=True):
     st.session_state.custom_title = st.text_input("Custom Title (optional)", "")
     st.session_state.tagline = st.text_input("Tagline (optional)", "")
 
-# --- CREATE FULL BOOK (FIXED 18+)
+# --- CREATE FULL BOOK ---
 if st.button("Create Full Book"):
     if is_adult_mode() and not st.session_state.adult_confirmed:
         require_adult_confirmation()
