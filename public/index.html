@@ -1,17 +1,63 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NarrativaX</title>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NarrativaX — AI Book Studio</title>
+  <link rel="icon" href="icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="icon-512.png" />
+  <meta name="theme-color" content="#1a1a1a" />
 
-    <!-- Progressier PWA Embed -->
-    <link rel="manifest" href="https://progressier.app/g5A5mHotHzUuHLXbXGB9/progressier.json" />
-    <script defer src="https://progressier.app/g5A5mHotHzUuHLXbXGB9/script.js"></script>
+  <!-- ✅ Progressier PWA integration -->
+  <link rel="manifest" href="https://progressier.app/g5A5mHotHzUuHLXbXGB9/progressier.json" />
+  <script defer src="https://progressier.app/g5A5mHotHzUuHLXbXGB9/script.js"></script>
 
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f7f7f7;
+      color: #1a1a1a;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+    }
+    .container {
+      padding: 50px 20px;
+    }
+    img.logo {
+      width: 150px;
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+    }
+    p {
+      font-size: 1.2rem;
+      color: #555;
+      margin-bottom: 30px;
+    }
+    a.btn {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #1a1a1a;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: bold;
+      transition: background 0.3s ease;
+    }
+    a.btn:hover {
+      background: #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <img src="icon-512.png" alt="NarrativaX Logo" class="logo" />
     <h1>Welcome to NarrativaX</h1>
-  </body>
+    <p>AI-powered Book Studio. Write, illustrate & narrate with AI — right from your phone.</p>
+    <a class="btn" href="https://narrativax.streamlit.app/" target="_blank">Launch App</a>
+  </div>
+</body>
 </html>
