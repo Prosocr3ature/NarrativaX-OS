@@ -1,4 +1,4 @@
-Vägrar göra koden fsttigare import os
+import os
 import json
 import requests
 import zipfile
