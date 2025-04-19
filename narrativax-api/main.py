@@ -338,7 +338,7 @@ def main_interface():
                 model = col1.selectbox("🤖 AI Model", ["nothingiisreal/mn-celeste-12b", "gryphe/mythomax-l2-13b"])
                 img_model = col2.selectbox("🖼️ Image Model", list(IMAGE_MODELS))
 
-                if st.button("🚀 Create Book", use_container_width=True):
+                if st.button("🚀 Create Book"):
                     st.session_state.image_cache.clear()
                     st.session_state.cover = None
                     st.session_state.book = None
