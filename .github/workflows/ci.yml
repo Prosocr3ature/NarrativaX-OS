@@ -29,14 +29,13 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r /mount/src/narrativax-os/narrativax-api/requirements.txt  # Specify the correct path
 
     - name: Run tests
       run: |
-        # (Replace with actual test commands, e.g., pytest)
         echo "No tests yet"
 
-    - name: Deploy application (example step)
+    - name: Deploy application
       run: |
         echo "Deploying the application..."
         # Add your deploy commands here
